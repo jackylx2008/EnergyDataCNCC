@@ -11,10 +11,19 @@
 3. 分组柱状图 (Grouped Bar Chart): 并排展示不同时间区间各能源类型的费用对比。
 """
 
-import pandas as pd
-import matplotlib.pyplot as plt
-import os
 import logging
+import os
+
+import matplotlib.pyplot as plt
+import pandas as pd
+from matplotlib.patches import Patch
+from matplotlib.ticker import FuncFormatter
+
+try:
+    import yaml
+except ImportError:  # pragma: no cover - PyYAML optional
+    yaml = None
+
 from logging_config import setup_logger
 
 # Configure Chinese font support for Matplotlib
@@ -24,6 +33,64 @@ plt.rcParams["font.sans-serif"] = [
     "Arial Unicode MS",
 ]  # Windows/Mac compatible
 plt.rcParams["axes.unicode_minus"] = False
+
+DEFAULT_ENERGY_COLOR_MAP = {
+    "电": "#A8C8E1",
+    "采暖热表": "#C1E0A5",
+    "生活热水表": "#F2B3B1",
+    "自来水": "#F28C28",
+    "中水": "#7E5AA7",
+    "燃气": "#B5754C",
+}
+
+
+def load_energy_color_map(config_path: str = "config.yaml") -> dict:
+    """Load palette from config file with sane fallbacks."""
+
+    colors = DEFAULT_ENERGY_COLOR_MAP.copy()
+    if yaml is None:
+        logging.getLogger(__name__).warning("未安装 PyYAML，使用默认配色")
+        return colors
+
+    if not os.path.exists(config_path):
+        return colors
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as cfg_file:
+            config = yaml.safe_load(cfg_file) or {}
+    except Exception as exc:  # pragma: no cover - defensive
+        logging.getLogger(__name__).warning("读取配色配置失败，使用默认值: %s", exc)
+        return colors
+
+    palette = config.get("colors", {}).get("energy", {})
+    if isinstance(palette, dict):
+        sanitized = {
+            str(key): str(value)
+            for key, value in palette.items()
+            if isinstance(value, str)
+        }
+        if sanitized:
+            colors.update(sanitized)
+
+    return colors
+
+
+ENERGY_COLOR_MAP = load_energy_color_map()
+
+
+def get_color_sequence(labels):
+    """Return a color list aligned with known energy type order."""
+
+    default_colors = list(ENERGY_COLOR_MAP.values()) or ["#999999"]
+    colors = []
+    fallback_index = 0
+    for label in labels:
+        if label in ENERGY_COLOR_MAP:
+            colors.append(ENERGY_COLOR_MAP[label])
+        else:
+            colors.append(default_colors[fallback_index % len(default_colors)])
+            fallback_index += 1
+    return colors
 
 
 def generate_pie_charts():
@@ -70,7 +137,7 @@ def generate_pie_charts():
                 val = row[col]
                 if val > 0:
                     values.append(val)
-                    # Extract energy type from column name (e.g., "电_费用(元)" -> "电")
+                    # Example: "电_费用(元)" -> "电"
                     energy_type = col.replace("_费用(元)", "")
                     labels.append(energy_type)
 
@@ -81,17 +148,19 @@ def generate_pie_charts():
             total_cost = sum(values)
 
             # Create Pie Chart
-            # Increase figure size significantly to accommodate larger fonts and legend
+            # Large canvas keeps legend readable
             plt.figure(figsize=(16, 10))
 
             # Pie chart
             # We use a legend to avoid label overlap on the chart itself
+            pie_colors = get_color_sequence(labels)
             wedges, texts, autotexts = plt.pie(  # type: ignore
                 values,
+                colors=pie_colors,
                 autopct="%1.1f%%",
                 startangle=140,
                 pctdistance=0.75,
-                textprops={"fontsize": 18},  # Increased font size for percentages
+                textprops={"fontsize": 18},
             )
 
             plt.title(
@@ -113,8 +182,8 @@ def generate_pie_charts():
                 title="分项费用明细",
                 loc="center left",
                 bbox_to_anchor=(0.9, 0, 0.5, 1),
-                fontsize=16,
-                title_fontsize=18,
+                fontsize=30,
+                title_fontsize=30,
             )
 
             # Add total cost at the bottom
@@ -134,9 +203,11 @@ def generate_pie_charts():
 
             # Save chart
             # Clean filename
-            safe_date_range = "".join(
-                [c for c in str(date_range) if c.isalnum() or c in (" ", ".", "-", "_")]
-            ).strip()
+            allowed_chars = {" ", ".", "-", "_"}
+            clean_chars = [
+                c for c in str(date_range) if c.isalnum() or c in allowed_chars
+            ]
+            safe_date_range = "".join(clean_chars).strip()
             output_path = os.path.join(
                 output_dir, f"cost_distribution_{safe_date_range}.png"
             )
@@ -193,13 +264,24 @@ def generate_cost_bar_chart():
         plt.figure(figsize=(18, 12))
         ax = plt.gca()
 
-        # Plot stacked bar chart
-        plot_df.plot(kind="bar", stacked=True, ax=ax, width=0.6, alpha=0.9)
+        # Plot stacked bar chart with shared color palette
+        bar_colors = get_color_sequence(plot_df.columns.tolist())
+        plot_df.plot(
+            kind="bar",
+            stacked=True,
+            ax=ax,
+            width=0.6,
+            alpha=0.9,
+            color=bar_colors,
+        )
 
         # Styling
         plt.title("各区间能源费用对比", fontsize=30, pad=25)
         plt.xlabel("日期区间", fontsize=24, labelpad=15)
-        plt.ylabel("费用 (元)", fontsize=24, labelpad=15)
+        plt.ylabel("费用 (万元)", fontsize=24, labelpad=15)
+        ax.yaxis.set_major_formatter(
+            FuncFormatter(lambda value, _: f"{value / 10000:.1f}")
+        )
         plt.xticks(rotation=0, fontsize=20)
         plt.yticks(fontsize=20)
 
@@ -240,7 +322,7 @@ def generate_cost_bar_chart():
                 c,  # type: ignore
                 labels=labels,
                 label_type="center",
-                fontsize=14,
+                fontsize=25,
                 color="white",
                 fontweight="bold",
             )
@@ -261,12 +343,12 @@ def generate_cost_bar_chart():
 def generate_grouped_bar_chart():
     """
     生成分项费用对比分组柱状图。
-    
+
     风格参考：
     - 单轴：仅展示分项费用（柱状）。
     - 布局：图例在底部，X轴标签旋转45度。
     - 样式：清晰的背景，数据标签横向显示，字体放大。
-    
+
     输出:
         output/charts/cost_grouped_bar.png
     """
@@ -301,36 +383,51 @@ def generate_grouped_bar_chart():
         # Create figure and primary axis
         fig, ax1 = plt.subplots(figsize=(20, 12))
 
-        # Plot grouped bars on ax1
-        # Using 'Paired' colormap for distinct colors
-        # Width set to 0.6
-        plot_df.plot(kind="bar", ax=ax1, width=0.6, alpha=0.9, rot=0, cmap="Paired", legend=False)
+        # Plot grouped bars on ax1 with consistent palette
+        group_colors = get_color_sequence(plot_df.columns.tolist())
+        plot_df.plot(
+            kind="bar",
+            ax=ax1,
+            width=0.6,
+            alpha=0.9,
+            rot=0,
+            color=group_colors,
+            legend=False,
+        )
 
         # Styling
-        ax1.set_title("各区间能源费用统计 (分项)", fontsize=30, pad=30, fontweight='bold')
-        ax1.set_xlabel("", fontsize=30) # X-axis label is redundant with dates
-        ax1.set_ylabel("分项费用 (元)", fontsize=30, labelpad=15)
+        ax1.set_title(
+            "各区间能源费用统计 (分项)", fontsize=30, pad=30, fontweight="bold"
+        )
+        ax1.set_xlabel("", fontsize=30)  # X-axis label is redundant with dates
+        ax1.set_ylabel("分项费用 (万元)", fontsize=30, labelpad=15)
+        ax1.yaxis.set_major_formatter(
+            FuncFormatter(lambda value, _: f"{value / 10000:.1f}")
+        )
 
         # Ticks
-        ax1.tick_params(axis='x', rotation=0, labelsize=30)
-        ax1.tick_params(axis='y', labelsize=30)
+        ax1.tick_params(axis="x", rotation=0, labelsize=30)
+        ax1.tick_params(axis="y", labelsize=30)
 
         # Grid (Horizontal only)
-        ax1.grid(axis='y', linestyle='--', alpha=0.3)
+        ax1.grid(axis="y", linestyle="--", alpha=0.3)
 
         # Legend
-        handles1, labels1 = ax1.get_legend_handles_labels()
-        
+        legend_labels = plot_df.columns.tolist()
+        legend_handles = [
+            Patch(facecolor=color, edgecolor=color) for color in group_colors
+        ]
+
         # Place legend at the bottom
         fig.legend(
-            handles1, 
-            labels1, 
-            loc='lower center', 
+            legend_handles,
+            legend_labels,
+            loc="lower center",
             bbox_to_anchor=(0.5, 0.02),
-            ncol=len(labels1), 
-            fontsize=25, 
+            ncol=len(legend_labels),
+            fontsize=25,
             handlelength=2.0,
-            frameon=False
+            frameon=False,
         )
 
         # Adjust layout to make room for legend and rotated labels
@@ -347,12 +444,12 @@ def generate_grouped_bar_chart():
                     labels.append("")
 
             ax1.bar_label(
-                c, 
-                labels=labels, 
-                label_type="edge", 
-                fontsize=20, # Font size set to 20
-                padding=3, 
-                rotation=0 # Horizontal labels
+                c,
+                labels=labels,
+                label_type="edge",
+                fontsize=20,  # Font size set to 20
+                padding=3,
+                rotation=0,  # Horizontal labels
             )
 
         output_path = os.path.join(output_dir, "cost_grouped_bar.png")
@@ -364,6 +461,7 @@ def generate_grouped_bar_chart():
 
     except Exception as e:
         logger.error(f"生成分组柱状图失败: {e}", exc_info=True)
+
 
 if __name__ == "__main__":
     generate_pie_charts()

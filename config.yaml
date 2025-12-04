@@ -8,3 +8,13 @@ log_file: ./logs/app.log  # 日志文件路径
 paths:
   input_dir: ./input  # 输入文件目录
   output_dir: ./output  # 输出文件目录
+
+# 可视化配色配置
+colors:
+  energy:
+    电: "#A8C8E1"
+    采暖热表: "#C1E0A5"
+    生活热水表: "#F2B3B1"
+    自来水: "#F28C28"
+    中水: "#7E5AA7"
+    燃气: "#B5754C"
