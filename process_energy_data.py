@@ -1,3 +1,18 @@
+"""
+能源数据处理主程序
+================
+
+此脚本负责协调整个能源数据的处理流程。主要功能包括：
+1. 读取配置文件 (config.yaml)。
+2. 扫描输入目录中的 Excel 文件。
+3. 使用 EnergySheet 类处理每个工作表的数据。
+4. 管理数据缓存 (Parquet 格式)，避免重复处理并检查数据一致性。
+5. 生成汇总 Excel 报表，包含各能源类型的费用统计。
+
+使用方法:
+    直接运行此脚本: python process_energy_data.py
+"""
+
 import os
 import yaml
 import pandas as pd
@@ -7,11 +22,30 @@ from energy_models import EnergySheet
 
 
 def load_config(config_path="config.yaml"):
+    """
+    加载 YAML 配置文件。
+
+    Args:
+        config_path (str): 配置文件路径，默认为 "config.yaml"。
+
+    Returns:
+        dict: 包含配置信息的字典。
+    """
     with open(config_path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
 def process_excel_files():
+    """
+    主处理函数。
+
+    执行以下步骤:
+    1. 初始化日志和配置。
+    2. 遍历输入目录下的所有 Excel 文件。
+    3. 对每个工作表进行清洗、缓存比对和汇总。
+    4. 将所有汇总数据合并，并生成透视表。
+    5. 将最终结果保存为 Excel 文件。
+    """
     # Load configuration
     config = load_config()
 
@@ -26,7 +60,7 @@ def process_excel_files():
 
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-        logger.info(f"Created output directory: {output_dir}")
+        logger.info(f"已创建输出目录: {output_dir}")
 
     summary_data = []
 
@@ -37,17 +71,17 @@ def process_excel_files():
     ]
 
     if not files:
-        logger.warning("No Excel files found in input directory.")
+        logger.warning("输入目录中未找到 Excel 文件。")
         return
 
     for file_name in files:
         file_path = os.path.join(input_dir, file_name)
-        logger.info(f"Processing file: {file_name}")
+        logger.info(f"正在处理文件: {file_name}")
 
         try:
             xls = pd.ExcelFile(file_path)
             for sheet_name in xls.sheet_names:
-                logger.info(f"  Processing sheet: {sheet_name}")
+                logger.info(f"  正在处理工作表: {sheet_name}")
 
                 # Use the EnergySheet class
                 sheet_obj = EnergySheet(file_path, sheet_name)
@@ -59,18 +93,17 @@ def process_excel_files():
                 )
 
                 if comparison_result == "NEW":
-                    logger.info(f"New sheet detected: {sheet_name}. Saving to cache.")
+                    logger.info(f"检测到新工作表: {sheet_name}。正在保存到缓存。")
                     sheet_obj.save_data(cache_dir, format="parquet")
                 elif comparison_result == "MATCH":
-                    logger.info(
-                        f"Data consistency check passed for sheet {sheet_name}."
-                    )
+                    logger.info(f"工作表 {sheet_name} 数据一致性检查通过。")
                 elif comparison_result == "MISMATCH":
                     logger.error(
-                        f"Data mismatch for sheet {sheet_name} in {file_name} compared to cached data! Skipping cache update."
+                        f"文件 {file_name} 中的工作表 {sheet_name} "
+                        "与缓存数据不匹配！跳过缓存更新。"
                     )
                 else:
-                    logger.error(f"Error checking cache for sheet {sheet_name}.")
+                    logger.error(f"检查工作表 {sheet_name} 的缓存时出错。")
 
                 summary = sheet_obj.get_summary()
 
@@ -78,7 +111,7 @@ def process_excel_files():
                     summary_data.append(summary)
 
         except Exception as e:
-            logger.error(f"Failed to process file {file_name}: {e}", exc_info=True)
+            logger.error(f"处理文件 {file_name} 失败: {e}", exc_info=True)
 
     if summary_data:
         final_df = pd.concat(summary_data, ignore_index=True)
@@ -123,11 +156,11 @@ def process_excel_files():
 
         output_path = os.path.join(output_dir, "energy_usage_summary.xlsx")
         pivot_df.to_excel(output_path, index=False)
-        logger.info(f"Summary saved to {output_path}")
-        print(f"Processing complete. Summary saved to {output_path}")
+        logger.info(f"汇总已保存至 {output_path}")
+        print(f"处理完成。汇总已保存至 {output_path}")
     else:
-        logger.warning("No data processed.")
-        print("No data processed.")
+        logger.warning("未处理任何数据。")
+        print("未处理任何数据。")
 
 
 if __name__ == "__main__":

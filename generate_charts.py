@@ -1,3 +1,16 @@
+"""
+图表生成模块
+==========
+
+此脚本用于读取处理后的能源汇总数据 (Excel)，并生成可视化的统计图表。
+生成的图表保存在 output/charts 目录下。
+
+包含的图表类型:
+1. 饼图 (Pie Chart): 展示每个时间区间的能源费用分布占比。
+2. 堆叠柱状图 (Stacked Bar Chart): 展示不同时间区间的总费用及各能源类型的构成。
+3. 分组柱状图 (Grouped Bar Chart): 并排展示不同时间区间各能源类型的费用对比。
+"""
+
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
@@ -14,6 +27,15 @@ plt.rcParams["axes.unicode_minus"] = False
 
 
 def generate_pie_charts():
+    """
+    生成费用分布饼图。
+
+    遍历汇总数据中的每一行 (每个日期区间)，为每个区间生成一个饼图，
+    显示不同能源类型的费用占比。
+
+    输出:
+        在 output/charts 目录下生成 cost_distribution_{日期区间}.png
+    """
     # Setup logging
     logger = setup_logger(log_level=logging.INFO, log_file="./logs/charts.log")
 
@@ -21,7 +43,7 @@ def generate_pie_charts():
     output_dir = "./output/charts"
 
     if not os.path.exists(input_file):
-        logger.error(f"Input file not found: {input_file}")
+        logger.error(f"未找到输入文件: {input_file}")
         return
 
     if not os.path.exists(output_dir):
@@ -34,7 +56,7 @@ def generate_pie_charts():
         cost_cols = [col for col in df.columns if col.endswith("_费用(元)")]
 
         if not cost_cols:
-            logger.warning("No cost columns found.")
+            logger.warning("未找到费用列。")
             return
 
         for index, row in df.iterrows():
@@ -53,7 +75,7 @@ def generate_pie_charts():
                     labels.append(energy_type)
 
             if not values:
-                logger.info(f"No cost data for {date_range}, skipping chart.")
+                logger.info(f"{date_range} 无费用数据，跳过图表生成。")
                 continue
 
             total_cost = sum(values)
@@ -64,7 +86,7 @@ def generate_pie_charts():
 
             # Pie chart
             # We use a legend to avoid label overlap on the chart itself
-            wedges, texts, autotexts = plt.pie(
+            wedges, texts, autotexts = plt.pie(  # type: ignore
                 values,
                 autopct="%1.1f%%",
                 startangle=140,
@@ -108,7 +130,7 @@ def generate_pie_charts():
 
             # Adjust layout to make room for legend and bottom text
             # rect=[left, bottom, right, top]
-            plt.tight_layout(rect=[0, 0.1, 0.85, 0.95])
+            plt.tight_layout(rect=(0, 0.1, 0.85, 0.95))
 
             # Save chart
             # Clean filename
@@ -122,20 +144,29 @@ def generate_pie_charts():
             plt.savefig(output_path)
             plt.close()
 
-            logger.info(f"Generated chart: {output_path}")
-            print(f"Generated chart: {output_path}")
+            logger.info(f"已生成图表: {output_path}")
+            print(f"已生成图表: {output_path}")
 
     except Exception as e:
-        logger.error(f"Failed to generate charts: {e}", exc_info=True)
+        logger.error(f"生成图表失败: {e}", exc_info=True)
 
 
 def generate_cost_bar_chart():
+    """
+    生成费用对比堆叠柱状图。
+
+    以日期区间为 X 轴，费用为 Y 轴，展示各区间的总费用。
+    不同能源类型的费用在柱状图中堆叠显示，方便比较总费用及构成。
+
+    输出:
+        output/charts/cost_comparison_bar.png
+    """
     logger = setup_logger(log_level=logging.INFO, log_file="./logs/charts.log")
     input_file = "./output/energy_usage_summary.xlsx"
     output_dir = "./output/charts"
 
     if not os.path.exists(input_file):
-        logger.error(f"Input file not found: {input_file}")
+        logger.error(f"未找到输入文件: {input_file}")
         return
 
     try:
@@ -144,7 +175,7 @@ def generate_cost_bar_chart():
         # Filter cost columns
         cost_cols = [col for col in df.columns if col.endswith("_费用(元)")]
         if not cost_cols:
-            logger.warning("No cost columns found for bar chart.")
+            logger.warning("未找到用于柱状图的费用列。")
             return
 
         # Prepare data: Date Range as index, Columns as Energy Types
@@ -155,7 +186,7 @@ def generate_cost_bar_chart():
         plot_df = plot_df[plot_df.sum(axis=1) > 0]
 
         if plot_df.empty:
-            logger.info("No valid data for bar chart.")
+            logger.info("无有效的柱状图数据。")
             return
 
         # Create figure
@@ -206,7 +237,7 @@ def generate_cost_bar_chart():
                 else:
                     labels.append("")
             ax.bar_label(
-                c,
+                c,  # type: ignore
                 labels=labels,
                 label_type="center",
                 fontsize=14,
@@ -220,20 +251,29 @@ def generate_cost_bar_chart():
         plt.savefig(output_path)
         plt.close()
 
-        logger.info(f"Generated bar chart: {output_path}")
-        print(f"Generated bar chart: {output_path}")
+        logger.info(f"已生成柱状图: {output_path}")
+        print(f"已生成柱状图: {output_path}")
 
     except Exception as e:
-        logger.error(f"Failed to generate bar chart: {e}", exc_info=True)
+        logger.error(f"生成柱状图失败: {e}", exc_info=True)
 
 
 def generate_grouped_bar_chart():
+    """
+    生成分项费用对比分组柱状图。
+
+    以日期区间为 X 轴，费用为 Y 轴。
+    每个日期区间下，不同能源类型的柱子并排显示，方便对比同一种能源在不同区间的费用变化。
+
+    输出:
+        output/charts/cost_grouped_bar.png
+    """
     logger = setup_logger(log_level=logging.INFO, log_file="./logs/charts.log")
     input_file = "./output/energy_usage_summary.xlsx"
     output_dir = "./output/charts"
 
     if not os.path.exists(input_file):
-        logger.error(f"Input file not found: {input_file}")
+        logger.error(f"未找到输入文件: {input_file}")
         return
 
     try:
@@ -242,7 +282,7 @@ def generate_grouped_bar_chart():
         # Filter cost columns
         cost_cols = [col for col in df.columns if col.endswith("_费用(元)")]
         if not cost_cols:
-            logger.warning("No cost columns found for grouped bar chart.")
+            logger.warning("未找到用于分组柱状图的费用列。")
             return
 
         # Prepare data: Date Range as index, Columns as Energy Types
@@ -253,7 +293,7 @@ def generate_grouped_bar_chart():
         plot_df = plot_df[plot_df.sum(axis=1) > 0]
 
         if plot_df.empty:
-            logger.info("No valid data for grouped bar chart.")
+            logger.info("无有效的分组柱状图数据。")
             return
 
         # Create figure
@@ -290,7 +330,7 @@ def generate_grouped_bar_chart():
                     labels.append("")
 
             ax.bar_label(
-                c,
+                c,  # type: ignore
                 labels=labels,
                 label_type="edge",
                 fontsize=12,
@@ -304,11 +344,11 @@ def generate_grouped_bar_chart():
         plt.savefig(output_path)
         plt.close()
 
-        logger.info(f"Generated grouped bar chart: {output_path}")
-        print(f"Generated grouped bar chart: {output_path}")
+        logger.info(f"已生成分组柱状图: {output_path}")
+        print(f"已生成分组柱状图: {output_path}")
 
     except Exception as e:
-        logger.error(f"Failed to generate grouped bar chart: {e}", exc_info=True)
+        logger.error(f"生成分组柱状图失败: {e}", exc_info=True)
 
 
 if __name__ == "__main__":
