@@ -261,10 +261,12 @@ def generate_cost_bar_chart():
 def generate_grouped_bar_chart():
     """
     生成分项费用对比分组柱状图。
-
-    以日期区间为 X 轴，费用为 Y 轴。
-    每个日期区间下，不同能源类型的柱子并排显示，方便对比同一种能源在不同区间的费用变化。
-
+    
+    风格参考：
+    - 单轴：仅展示分项费用（柱状）。
+    - 布局：图例在底部，X轴标签旋转45度。
+    - 样式：清晰的背景，数据标签横向显示，字体放大。
+    
     输出:
         output/charts/cost_grouped_bar.png
     """
@@ -296,31 +298,46 @@ def generate_grouped_bar_chart():
             logger.info("无有效的分组柱状图数据。")
             return
 
-        # Create figure
-        plt.figure(figsize=(20, 12))
-        ax = plt.gca()
+        # Create figure and primary axis
+        fig, ax1 = plt.subplots(figsize=(20, 12))
 
-        # Plot grouped bar chart (stacked=False is default)
-        plot_df.plot(kind="bar", ax=ax, width=0.8, alpha=0.9)
+        # Plot grouped bars on ax1
+        # Using 'Paired' colormap for distinct colors
+        # Width set to 0.6
+        plot_df.plot(kind="bar", ax=ax1, width=0.6, alpha=0.9, rot=0, cmap="Paired", legend=False)
 
         # Styling
-        plt.title("各区间分项能源费用对比", fontsize=30, pad=25)
-        plt.xlabel("日期区间", fontsize=24, labelpad=15)
-        plt.ylabel("费用 (元)", fontsize=24, labelpad=15)
-        plt.xticks(rotation=0, fontsize=20)
-        plt.yticks(fontsize=20)
+        ax1.set_title("各区间能源费用统计 (分项)", fontsize=30, pad=30, fontweight='bold')
+        ax1.set_xlabel("", fontsize=30) # X-axis label is redundant with dates
+        ax1.set_ylabel("分项费用 (元)", fontsize=30, labelpad=15)
+
+        # Ticks
+        ax1.tick_params(axis='x', rotation=0, labelsize=30)
+        ax1.tick_params(axis='y', labelsize=30)
+
+        # Grid (Horizontal only)
+        ax1.grid(axis='y', linestyle='--', alpha=0.3)
 
         # Legend
-        plt.legend(
-            title="能源类型",
-            fontsize=18,
-            title_fontsize=20,
-            bbox_to_anchor=(1.01, 1),
-            loc="upper left",
+        handles1, labels1 = ax1.get_legend_handles_labels()
+        
+        # Place legend at the bottom
+        fig.legend(
+            handles1, 
+            labels1, 
+            loc='lower center', 
+            bbox_to_anchor=(0.5, 0.02),
+            ncol=len(labels1), 
+            fontsize=25, 
+            handlelength=2.0,
+            frameon=False
         )
 
-        # Add value labels on top of each bar
-        for c in ax.containers:
+        # Adjust layout to make room for legend and rotated labels
+        plt.subplots_adjust(bottom=0.2, top=0.9)
+
+        # Add value labels on top of each bar (ax1)
+        for c in ax1.containers:
             labels = []
             for v in c:
                 height = v.get_height()
@@ -329,16 +346,14 @@ def generate_grouped_bar_chart():
                 else:
                     labels.append("")
 
-            ax.bar_label(
-                c,  # type: ignore
-                labels=labels,
-                label_type="edge",
-                fontsize=12,
-                padding=3,
-                rotation=0,  # Keep horizontal for readability unless crowded
+            ax1.bar_label(
+                c, 
+                labels=labels, 
+                label_type="edge", 
+                fontsize=20, # Font size set to 20
+                padding=3, 
+                rotation=0 # Horizontal labels
             )
-
-        plt.tight_layout()
 
         output_path = os.path.join(output_dir, "cost_grouped_bar.png")
         plt.savefig(output_path)
@@ -349,7 +364,6 @@ def generate_grouped_bar_chart():
 
     except Exception as e:
         logger.error(f"生成分组柱状图失败: {e}", exc_info=True)
-
 
 if __name__ == "__main__":
     generate_pie_charts()

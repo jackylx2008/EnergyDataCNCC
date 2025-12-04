@@ -76,4 +76,3 @@ pip install pandas matplotlib openpyxl pyarrow pyyaml
 ### 3. 调试 (`inspect_excel.py`)
 
 如果遇到新的 Excel 格式，可以使用此脚本快速查看文件结构和列名，以便调整代码。
-
