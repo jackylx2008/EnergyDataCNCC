@@ -181,27 +181,82 @@ def save_summary(summary_data, output_dir, group_name):
     return output_path
 
 
+def process_reclaimed_water_file(file_path):
+    """
+    处理中水用量表。
+    1. 月份在第0列 (如 1月, 2月)。
+    2. 费用在第2列。
+    """
+    file_name = os.path.basename(file_path)
+    logger = logging.getLogger(__name__)
+    results = []
+
+    try:
+        df_raw = pd.read_excel(file_path, sheet_name=0, header=None)
+
+        for i, row in df_raw.iterrows():
+            month = str(row[0]).strip()
+            if "月" not in month or len(month) > 3:
+                continue
+
+            try:
+                val = float(row[2])
+                if not pd.isna(val) and val >= 0:
+                    results.append(
+                        {
+                            "日期区间": month,
+                            "能源类型": "中水",
+                            "实际消耗": 0.0,
+                            "费用(元)": val,
+                            "来源文件": file_name,
+                        }
+                    )
+            except (ValueError, TypeError):
+                pass
+
+        return pd.DataFrame(results)
+    except Exception as e:
+        logger.error(f"处理中水文件 {file_name} 失败: {e}")
+        return None
+
+
 def process_2025_workflow(input_dir, output_dir):
     """
-    工作流 1: 处理 2025 年度台账文件
+    工作流 1: 处理 2025 年度台账及中水文件
     """
     logger = logging.getLogger(__name__)
     group_name = "2025台账"
     summary_data = []
 
-    files = [
+    # 处理主要的 2025 台账文件
+    files_ledger = [
         f
         for f in os.listdir(input_dir)
         if f.endswith(".xlsx") and f.startswith("2025") and not f.startswith("~$")
     ]
 
-    for file_name in files:
+    for file_name in files_ledger:
         file_path = os.path.join(input_dir, file_name)
-        logger.info(f"[2025台账流] 正在处理文件: {file_name}")
+        logger.info(f"[2025台账流] 正在处理台账文件: {file_name}")
 
         ledger_df = process_ledger_file(file_path)
         if ledger_df is not None:
             summary_data.append(ledger_df)
+
+    # 处理中水文件
+    files_reclaimed = [
+        f
+        for f in os.listdir(input_dir)
+        if "中水用量表" in f and f.endswith(".xlsx") and not f.startswith("~$")
+    ]
+
+    for file_name in files_reclaimed:
+        file_path = os.path.join(input_dir, file_name)
+        logger.info(f"[2025台账流] 正在处理中水文件: {file_name}")
+
+        reclaimed_df = process_reclaimed_water_file(file_path)
+        if reclaimed_df is not None:
+            summary_data.append(reclaimed_df)
 
     path = save_summary(summary_data, output_dir, group_name)
     return {group_name: path} if path else {}
