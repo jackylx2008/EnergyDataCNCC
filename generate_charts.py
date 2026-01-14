@@ -93,7 +93,10 @@ def get_color_sequence(labels):
     return colors
 
 
-def generate_pie_charts():
+def generate_pie_charts(
+    input_file: str = "./output/energy_usage_summary.xlsx",
+    output_dir: str = "./output/charts",
+):
     """
     生成费用分布饼图。
 
@@ -101,13 +104,10 @@ def generate_pie_charts():
     显示不同能源类型的费用占比。
 
     输出:
-        在 output/charts 目录下生成 cost_distribution_{日期区间}.png
+        在 output_dir 目录下生成 cost_distribution_{日期区间}.png
     """
     # Setup logging
     logger = setup_logger(log_level=logging.INFO, log_file="./logs/charts.log")
-
-    input_file = "./output/energy_usage_summary.xlsx"
-    output_dir = "./output/charts"
 
     if not os.path.exists(input_file):
         logger.error(f"未找到输入文件: {input_file}")
@@ -222,7 +222,10 @@ def generate_pie_charts():
         logger.error(f"生成图表失败: {e}", exc_info=True)
 
 
-def generate_cost_bar_chart():
+def generate_cost_bar_chart(
+    input_file: str = "./output/energy_usage_summary.xlsx",
+    output_dir: str = "./output/charts",
+):
     """
     生成费用对比堆叠柱状图。
 
@@ -230,15 +233,16 @@ def generate_cost_bar_chart():
     不同能源类型的费用在柱状图中堆叠显示，方便比较总费用及构成。
 
     输出:
-        output/charts/cost_comparison_bar.png
+        output_dir/cost_comparison_bar.png
     """
     logger = setup_logger(log_level=logging.INFO, log_file="./logs/charts.log")
-    input_file = "./output/energy_usage_summary.xlsx"
-    output_dir = "./output/charts"
 
     if not os.path.exists(input_file):
         logger.error(f"未找到输入文件: {input_file}")
         return
+
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
 
     try:
         df = pd.read_excel(input_file)
@@ -340,25 +344,28 @@ def generate_cost_bar_chart():
         logger.error(f"生成柱状图失败: {e}", exc_info=True)
 
 
-def generate_grouped_bar_chart():
+def generate_grouped_bar_chart(
+    input_file: str = "./output/energy_usage_summary.xlsx",
+    output_dir: str = "./output/charts",
+):
     """
     生成分项费用对比分组柱状图。
-
-    风格参考：
-    - 单轴：仅展示分项费用（柱状）。
-    - 布局：图例在底部，X轴标签旋转45度。
-    - 样式：清晰的背景，数据标签横向显示，字体放大。
+    根据费用的数量级，自动将数据分为两组生成两张图表：
+    1. 主要能源：电、采暖热表
+    2. 其他能源：自来水、燃气、生活热水等
 
     输出:
-        output/charts/cost_grouped_bar.png
+        output_dir/cost_grouped_bar_major.png (电、采暖热表)
+        output_dir/cost_grouped_bar_minor.png (其他)
     """
     logger = setup_logger(log_level=logging.INFO, log_file="./logs/charts.log")
-    input_file = "./output/energy_usage_summary.xlsx"
-    output_dir = "./output/charts"
 
     if not os.path.exists(input_file):
         logger.error(f"未找到输入文件: {input_file}")
         return
+
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
 
     try:
         df = pd.read_excel(input_file)
@@ -371,93 +378,117 @@ def generate_grouped_bar_chart():
 
         # Prepare data: Date Range as index, Columns as Energy Types
         rename_map = {col: col.replace("_费用(元)", "") for col in cost_cols}
-        plot_df = df.set_index("日期区间")[cost_cols].rename(columns=rename_map)
+        full_plot_df = df.set_index("日期区间")[cost_cols].rename(columns=rename_map)
 
-        # Filter out rows with 0 total cost
-        plot_df = plot_df[plot_df.sum(axis=1) > 0]
+        # Remove rows with 0 total cost
+        full_plot_df = full_plot_df[full_plot_df.sum(axis=1) > 0]
 
-        if plot_df.empty:
+        if full_plot_df.empty:
             logger.info("无有效的分组柱状图数据。")
             return
 
-        # Create figure and primary axis
-        fig, ax1 = plt.subplots(figsize=(20, 12))
+        # Define groups
+        major_types = ["电", "采暖热表"]
 
-        # Plot grouped bars on ax1 with consistent palette
-        group_colors = get_color_sequence(plot_df.columns.tolist())
-        plot_df.plot(
-            kind="bar",
-            ax=ax1,
-            width=0.6,
-            alpha=0.9,
-            rot=0,
-            color=group_colors,
-            legend=False,
-        )
+        # Sub-function to generate chart for a subset of columns
+        def create_chart_for_columns(columns, suffix, title_suffix):
+            valid_cols = [c for c in columns if c in full_plot_df.columns]
+            if not valid_cols:
+                return
 
-        # Styling
-        ax1.set_title(
-            "各区间能源费用统计 (分项)", fontsize=30, pad=30, fontweight="bold"
-        )
-        ax1.set_xlabel("", fontsize=30)  # X-axis label is redundant with dates
-        ax1.set_ylabel("分项费用 (万元)", fontsize=30, labelpad=15)
-        ax1.yaxis.set_major_formatter(
-            FuncFormatter(lambda value, _: f"{value / 10000:.1f}")
-        )
+            subset_df = full_plot_df[valid_cols]
+            # Skip if all zeros
+            if subset_df.sum().sum() == 0:
+                return
 
-        # Ticks
-        ax1.tick_params(axis="x", rotation=0, labelsize=30)
-        ax1.tick_params(axis="y", labelsize=30)
+            # Create figure and primary axis
+            fig, ax1 = plt.subplots(figsize=(20, 12))
 
-        # Grid (Horizontal only)
-        ax1.grid(axis="y", linestyle="--", alpha=0.3)
-
-        # Legend
-        legend_labels = plot_df.columns.tolist()
-        legend_handles = [
-            Patch(facecolor=color, edgecolor=color) for color in group_colors
-        ]
-
-        # Place legend at the bottom
-        fig.legend(
-            legend_handles,
-            legend_labels,
-            loc="lower center",
-            bbox_to_anchor=(0.5, 0.02),
-            ncol=len(legend_labels),
-            fontsize=25,
-            handlelength=2.0,
-            frameon=False,
-        )
-
-        # Adjust layout to make room for legend and rotated labels
-        plt.subplots_adjust(bottom=0.2, top=0.9)
-
-        # Add value labels on top of each bar (ax1)
-        for c in ax1.containers:
-            labels = []
-            for v in c:
-                height = v.get_height()
-                if height > 0:
-                    labels.append(f"{height:,.0f}")
-                else:
-                    labels.append("")
-
-            ax1.bar_label(
-                c,
-                labels=labels,
-                label_type="edge",
-                fontsize=20,  # Font size set to 20
-                padding=3,
-                rotation=0,  # Horizontal labels
+            # Plot grouped bars on ax1 with consistent palette
+            group_colors = get_color_sequence(subset_df.columns.tolist())
+            subset_df.plot(
+                kind="bar",
+                ax=ax1,
+                width=0.6,
+                alpha=0.9,
+                rot=0,
+                color=group_colors,
+                legend=False,
             )
 
-        output_path = os.path.join(output_dir, "cost_grouped_bar.png")
-        plt.savefig(output_path)
-        plt.close()
+            # Styling
+            ax1.set_title(
+                f"各区间能源费用统计 ({title_suffix})",
+                fontsize=30,
+                pad=30,
+                fontweight="bold",
+            )
+            ax1.set_xlabel("", fontsize=30)  # X-axis label is redundant with dates
+            ax1.set_ylabel("分项费用 (万元)", fontsize=30, labelpad=15)
+            ax1.yaxis.set_major_formatter(
+                FuncFormatter(lambda value, _: f"{value / 10000:.1f}")
+            )
 
-        logger.info(f"已生成分组柱状图: {output_path}")
-        print(f"已生成分组柱状图: {output_path}")
+            # Ticks
+            ax1.tick_params(axis="x", rotation=0, labelsize=30)
+            ax1.tick_params(axis="y", labelsize=30)
+
+            # Grid (Horizontal only)
+            ax1.grid(axis="y", linestyle="--", alpha=0.3)
+
+            # Legend
+            legend_labels = subset_df.columns.tolist()
+            legend_handles = [
+                Patch(facecolor=color, edgecolor=color) for color in group_colors
+            ]
+
+            # Place legend at the bottom
+            fig.legend(
+                legend_handles,
+                legend_labels,
+                loc="lower center",
+                bbox_to_anchor=(0.5, 0.02),
+                ncol=len(legend_labels),
+                fontsize=25,
+                handlelength=2.0,
+                frameon=False,
+            )
+
+            # Adjust layout to make room for legend and rotated labels
+            plt.subplots_adjust(bottom=0.2, top=0.9)
+
+            # Add value labels on top of each bar (ax1)
+            for c in ax1.containers:
+                labels = []
+                for v in c:
+                    height = v.get_height()
+                    if height > 0:
+                        labels.append(f"{height:,.0f}")
+                    else:
+                        labels.append("")
+
+                ax1.bar_label(
+                    c,
+                    labels=labels,
+                    label_type="edge",
+                    fontsize=20,
+                    padding=3,
+                    rotation=0,
+                )
+
+            output_path = os.path.join(output_dir, f"cost_grouped_bar_{suffix}.png")
+            plt.savefig(output_path)
+            plt.close()
+
+            logger.info(f"已生成分组柱状图: {output_path}")
+            print(f"已生成分组柱状图: {output_path}")
+
+        # 1. Generate Major Chart
+        create_chart_for_columns(major_types, "major", "主要能源")
+
+        # 2. Generate Minor Chart (All others)
+        minor_types = [c for c in full_plot_df.columns if c not in major_types]
+        create_chart_for_columns(minor_types, "minor", "其他能源")
 
     except Exception as e:
         logger.error(f"生成分组柱状图失败: {e}", exc_info=True)
