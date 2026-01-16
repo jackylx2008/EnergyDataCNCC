@@ -413,8 +413,9 @@ def generate_cost_bar_chart(
                 f"{total:,.0f}",
                 ha="center",
                 va="bottom",
-                fontsize=22,
+                fontsize=18,
                 fontweight="bold",
+                color="black",
             )
 
         # Add value labels inside bars (only for significant values)
@@ -432,8 +433,8 @@ def generate_cost_bar_chart(
                 c,  # type: ignore
                 labels=labels,
                 label_type="center",
-                fontsize=25,
-                color="white",
+                fontsize=18,
+                color="black",
                 fontweight="bold",
             )
 
