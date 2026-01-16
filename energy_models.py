@@ -20,7 +20,7 @@ class EnergySheet:
     """
 
     # 定义需要统计的目标能源类型
-    TARGET_TYPES = ["电", "采暖热表", "生活热水表", "自来水", "中水", "燃气"]
+    TARGET_TYPES = ["电", "采暖热费", "生活热水热费", "自来水", "中水", "燃气"]
     REQUIRED_COLS = ["能源类型", "实际消耗", "费用(元)"]
 
     def __init__(self, file_path, sheet_name):

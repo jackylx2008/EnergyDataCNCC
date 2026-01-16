@@ -36,8 +36,8 @@ plt.rcParams["axes.unicode_minus"] = False
 
 DEFAULT_ENERGY_COLOR_MAP = {
     "电": "#A8C8E1",
-    "采暖热表": "#C1E0A5",
-    "生活热水表": "#F2B3B1",
+    "采暖热费": "#C1E0A5",
+    "生活热水热费": "#F2B3B1",
     "自来水": "#F28C28",
     "中水": "#7E5AA7",
     "燃气": "#B5754C",
@@ -163,6 +163,22 @@ def generate_pie_charts(
                 textprops={"fontsize": 18},
             )
 
+            # Adjust distance for small slices (< 5%) to avoid overlap
+            small_slice_idx = 0
+            for i, autotext in enumerate(autotexts):
+                percentage = values[i] / total_cost * 100
+                if percentage < 5:
+                    # Alternating distances: 0.65 and 0.88 (original was 0.75)
+                    new_dist = 0.65 if small_slice_idx % 2 == 0 else 0.88
+                    curr_x, curr_y = autotext.get_position()
+                    # Scale based on original pctdistance of 0.75
+                    scale = new_dist / 0.75
+                    autotext.set_position((curr_x * scale, curr_y * scale))
+                    # Slightly smaller font for very small slices
+                    if percentage < 2:
+                        autotext.set_fontsize(14)
+                    small_slice_idx += 1
+
             plt.title(
                 f"能源费用分布 - {date_range}", fontsize=28, pad=20
             )  # Increased title font size
@@ -218,8 +234,98 @@ def generate_pie_charts(
             logger.info(f"已生成图表: {output_path}")
             print(f"已生成图表: {output_path}")
 
+        # 生成全年汇总饼图
+        generate_annual_pie_chart(input_file, output_dir)
+
     except Exception as e:
         logger.error(f"生成图表失败: {e}", exc_info=True)
+
+
+def generate_annual_pie_chart(
+    input_file: str = "./output/energy_usage_summary.xlsx",
+    output_dir: str = "./output/charts",
+):
+    """
+    生成全年能源费用分布饼图。
+    """
+    logger = setup_logger(log_level=logging.INFO, log_file="./logs/charts.log")
+
+    try:
+        df = pd.read_excel(input_file)
+        cost_cols = [col for col in df.columns if col.endswith("_费用(元)")]
+
+        values = []
+        labels = []
+        for col in cost_cols:
+            val = df[col].sum()
+            if val > 0:
+                values.append(val)
+                labels.append(col.replace("_费用(元)", ""))
+
+        if not values:
+            return
+
+        total_cost = sum(values)
+
+        plt.figure(figsize=(16, 10))
+        pie_colors = get_color_sequence(labels)
+        wedges, texts, autotexts = plt.pie(  # type: ignore
+            values,
+            colors=pie_colors,
+            autopct="%1.1f%%",
+            startangle=140,
+            pctdistance=0.75,
+            textprops={"fontsize": 18},
+        )
+
+        # 交错显示小占比标注
+        small_slice_idx = 0
+        for i, autotext in enumerate(autotexts):
+            percentage = values[i] / total_cost * 100
+            if percentage < 5:
+                # 交错布局：0.65 和 0.88
+                new_dist = 0.65 if small_slice_idx % 2 == 0 else 0.88
+                curr_x, curr_y = autotext.get_position()
+                scale = new_dist / 0.75
+                autotext.set_position((curr_x * scale, curr_y * scale))
+                if percentage < 2:
+                    autotext.set_fontsize(14)
+                small_slice_idx += 1
+
+        plt.title("全年能源费用分布汇总", fontsize=28, pad=20)
+        plt.axis("equal")
+
+        legend_labels = [f"{label}: {val:,.2f}元" for label, val in zip(labels, values)]
+        plt.legend(
+            wedges,
+            legend_labels,
+            title="分项费用明细",
+            loc="center left",
+            bbox_to_anchor=(0.9, 0, 0.5, 1),
+            fontsize=30,
+            title_fontsize=30,
+        )
+
+        plt.figtext(
+            0.5,
+            0.05,
+            f"全年总费用: {total_cost:,.2f} 元",
+            ha="center",
+            fontsize=26,
+            fontweight="bold",
+            color="#333333",
+        )
+
+        plt.tight_layout(rect=(0, 0.1, 0.85, 0.95))
+        output_path = os.path.join(output_dir, "cost_distribution_annual_summary.png")
+        plt.savefig(output_path)
+        plt.close()
+
+        logger.info(f"已生成全年汇总饼图: {output_path}")
+        print(f"已生成全年汇总饼图: {output_path}")
+
+    except Exception as e:
+        logger.error(f"生成全年汇总饼图失败: {e}", exc_info=True)
 
 
 def generate_cost_bar_chart(
@@ -351,11 +457,11 @@ def generate_grouped_bar_chart(
     """
     生成分项费用对比分组柱状图。
     根据费用的数量级，自动将数据分为两组生成两张图表：
-    1. 主要能源：电、采暖热表
-    2. 其他能源：自来水、燃气、生活热水等
+    1. 主要能源：电、采暖热费
+    2. 其他能源：自来水、燃气、生活热水热费等
 
     输出:
-        output_dir/cost_grouped_bar_major.png (电、采暖热表)
+        output_dir/cost_grouped_bar_major.png (电、采暖热费)
         output_dir/cost_grouped_bar_minor.png (其他)
     """
     logger = setup_logger(log_level=logging.INFO, log_file="./logs/charts.log")
@@ -388,7 +494,7 @@ def generate_grouped_bar_chart(
             return
 
         # Define groups
-        major_types = ["电", "采暖热表"]
+        major_types = ["电", "采暖热费"]
 
         # Sub-function to generate chart for a subset of columns
         def create_chart_for_columns(columns, suffix, title_suffix):
@@ -418,7 +524,7 @@ def generate_grouped_bar_chart(
 
             # Styling
             ax1.set_title(
-                f"各区间能源费用统计 ({title_suffix})",
+                "水、电、热费用统计",
                 fontsize=30,
                 pad=30,
                 fontweight="bold",
@@ -468,7 +574,7 @@ def generate_grouped_bar_chart(
                         labels.append("")
 
                 ax1.bar_label(
-                    c,
+                    c,  # type: ignore
                     labels=labels,
                     label_type="edge",
                     fontsize=20,

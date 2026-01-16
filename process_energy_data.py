@@ -31,10 +31,8 @@ def process_ledger_file(file_path):
 
     mapping = {
         "电": 2,
-        "采暖热表": 10,  # 热力-成本
         "燃气": 8,  # 天然气-成本
         "自来水": 15,  # 自来水-成本
-        "生活热水表": 17,  # 生活热水-成本
     }
 
     results = []
@@ -44,15 +42,15 @@ def process_ledger_file(file_path):
 
         # 寻找 '1月' 所在的行
         start_row = -1
-        for i, row in df_raw.iterrows():
-            if str(row[0]).strip() == "1月":
+        for i in range(len(df_raw)):
+            if str(df_raw.iloc[i, 0]).strip() == "1月":
                 start_row = i
                 break
 
         if start_row == -1:
             return None
 
-        for i in range(int(start_row), int(start_row) + 12):
+        for i in range(start_row, start_row + 12):
             if i >= len(df_raw):
                 break
             row = df_raw.iloc[i]
@@ -159,7 +157,7 @@ def save_summary(summary_data, output_dir, group_name):
 
     # Reorder columns based on specific order
     ordered_columns = ["日期区间"]
-    target_order = ["电", "采暖热表", "生活热水表", "自来水", "中水", "燃气"]
+    target_order = ["电", "采暖热费", "生活热水热费", "自来水", "中水", "燃气"]
 
     for energy_type in target_order:
         col_cost = f"{energy_type}_费用(元)"
@@ -220,6 +218,63 @@ def process_reclaimed_water_file(file_path):
         return None
 
 
+def process_heat_station_file(file_path):
+    """
+    处理热力站月度费用。
+    1. 月份在第0列 (1月, 2月, ..., 12月)。
+    2. 生活热水热费在第1列。
+    3. 采暖热费在第2列。
+    """
+    file_name = os.path.basename(file_path)
+    logger = logging.getLogger(__name__)
+    results = []
+
+    try:
+        df_raw = pd.read_excel(file_path, sheet_name=0, header=0)
+
+        for i, row in df_raw.iterrows():
+            month = str(row.iloc[0]).strip()
+            if "月" not in month or "合计" in month or month == "月份":
+                continue
+
+            # 生活热水热费 (Col 1)
+            try:
+                hw_val = float(row.iloc[1])
+                if not pd.isna(hw_val) and hw_val >= 0:
+                    results.append(
+                        {
+                            "日期区间": month,
+                            "能源类型": "生活热水热费",
+                            "实际消耗": 0.0,
+                            "费用(元)": hw_val,
+                            "来源文件": file_name,
+                        }
+                    )
+            except (ValueError, TypeError):
+                pass
+
+            # 采暖热费 (Col 2)
+            try:
+                h_val = float(row.iloc[2])
+                if not pd.isna(h_val) and h_val >= 0:
+                    results.append(
+                        {
+                            "日期区间": month,
+                            "能源类型": "采暖热费",
+                            "实际消耗": 0.0,
+                            "费用(元)": h_val,
+                            "来源文件": file_name,
+                        }
+                    )
+            except (ValueError, TypeError):
+                pass
+
+        return pd.DataFrame(results)
+    except Exception as e:
+        logger.error(f"处理热力站文件 {file_name} 失败: {e}")
+        return None
+
+
 def process_2025_workflow(input_dir, output_dir):
     """
     工作流 1: 处理 2025 年度台账及中水文件
@@ -232,7 +287,10 @@ def process_2025_workflow(input_dir, output_dir):
     files_ledger = [
         f
         for f in os.listdir(input_dir)
-        if f.endswith(".xlsx") and f.startswith("2025") and not f.startswith("~$")
+        if f.endswith(".xlsx")
+        and f.startswith("2025")
+        and not f.startswith("~$")
+        and "热力站" not in f  # 排除专门的热力站费用文件
     ]
 
     for file_name in files_ledger:
@@ -242,6 +300,21 @@ def process_2025_workflow(input_dir, output_dir):
         ledger_df = process_ledger_file(file_path)
         if ledger_df is not None:
             summary_data.append(ledger_df)
+
+    # 处理特定的热力站费用文件
+    files_heat = [
+        f
+        for f in os.listdir(input_dir)
+        if "热力站供暖费与生活热水费" in f
+        and f.endswith(".xlsx")
+        and not f.startswith("~$")
+    ]
+    for file_name in files_heat:
+        file_path = os.path.join(input_dir, file_name)
+        logger.info(f"[2025台账流] 正在处理热力文件: {file_name}")
+        heat_df = process_heat_station_file(file_path)
+        if heat_df is not None:
+            summary_data.append(heat_df)
 
     # 处理中水文件
     files_reclaimed = [
