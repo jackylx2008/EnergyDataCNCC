@@ -155,16 +155,22 @@ def save_summary(summary_data, output_dir, group_name):
     pivot_df.sort_values("_sort_key", inplace=True)
     pivot_df.drop(columns=["_sort_key"], inplace=True)
 
-    # Reorder columns based on specific order
+    # Reorder columns based on specific order, and exclude those with 0 total cost
     ordered_columns = ["日期区间"]
     target_order = ["电", "采暖热费", "生活热水热费", "自来水", "中水", "燃气"]
 
     for energy_type in target_order:
         col_cost = f"{energy_type}_费用(元)"
         if col_cost in pivot_df.columns:
-            ordered_columns.append(col_cost)
+            # Check if this category has any non-zero costs
+            if pivot_df[col_cost].sum() > 0:
+                ordered_columns.append(col_cost)
 
-    remaining_cols = [col for col in pivot_df.columns if col not in ordered_columns]
+    remaining_cols = [
+        col
+        for col in pivot_df.columns
+        if col not in ordered_columns and pivot_df[col].sum() > 0
+    ]
     ordered_columns.extend(remaining_cols)
     pivot_df = pivot_df[ordered_columns]
 
@@ -198,14 +204,37 @@ def process_reclaimed_water_file(file_path):
                 continue
 
             try:
-                val = float(row[2])
-                if not pd.isna(val) and val >= 0:
+                # B列(索引1)为用量，C列(索引2)为费用
+                vol = 0.0
+                cost = 0.0
+
+                def convert_to_float(val):
+                    if pd.isna(val):
+                        return None
+                    try:
+                        return float(val)
+                    except:
+                        return None
+
+                raw_vol = convert_to_float(row[1]) if len(row) > 1 else None
+                raw_cost = convert_to_float(row[2]) if len(row) > 2 else None
+
+                if raw_vol is not None:
+                    vol = raw_vol
+
+                if raw_cost is not None:
+                    cost = raw_cost
+                else:
+                    # 如果费用列为空，按 1.0 元/立方米估算
+                    cost = vol * 1.0
+
+                if vol >= 0:
                     results.append(
                         {
                             "日期区间": month,
                             "能源类型": "中水",
-                            "实际消耗": 0.0,
-                            "费用(元)": val,
+                            "实际消耗": vol,
+                            "费用(元)": cost,
                             "来源文件": file_name,
                         }
                     )
@@ -288,7 +317,7 @@ def process_2025_workflow(input_dir, output_dir):
         f
         for f in os.listdir(input_dir)
         if f.endswith(".xlsx")
-        and f.startswith("2025")
+        and ("台账" in f or f.startswith("2025"))
         and not f.startswith("~$")
         and "热力站" not in f  # 排除专门的热力站费用文件
     ]
@@ -301,32 +330,56 @@ def process_2025_workflow(input_dir, output_dir):
         if ledger_df is not None:
             summary_data.append(ledger_df)
 
-    # 处理特定的热力站费用文件
-    files_heat = [
-        f
-        for f in os.listdir(input_dir)
-        if "热力站供暖费与生活热水费" in f
-        and f.endswith(".xlsx")
-        and not f.startswith("~$")
-    ]
-    for file_name in files_heat:
-        file_path = os.path.join(input_dir, file_name)
+    # 包含 B23 目录下的台账文件 (如果是 2025 台账)
+    base_dir = (
+        os.path.dirname(input_dir)
+        if os.path.basename(input_dir) == "主体"
+        else input_dir
+    )
+    b23_dir = os.path.join(base_dir, "B23")
+    if os.path.exists(b23_dir):
+        files_b23 = [
+            f
+            for f in os.listdir(b23_dir)
+            if f.endswith(".xlsx")
+            and ("台账" in f or f.startswith("2025"))
+            and not f.startswith("~$")
+        ]
+        for file_name in files_b23:
+            file_path = os.path.join(b23_dir, file_name)
+            logger.info(f"[2025台账流] 正在处理 B23 台账文件: {file_name}")
+            ledger_df = process_ledger_file(file_path)
+            if ledger_df is not None:
+                summary_data.append(ledger_df)
+
+    # 处理特定的热力站费用文件 (递归搜索)
+    files_heat = []
+    for root, dirs, files in os.walk(base_dir):
+        for f in files:
+            if (
+                "热力站供暖费与生活热水费" in f
+                and f.endswith(".xlsx")
+                and not f.startswith("~$")
+            ):
+                files_heat.append(os.path.join(root, f))
+
+    for file_path in files_heat:
+        file_name = os.path.basename(file_path)
         logger.info(f"[2025台账流] 正在处理热力文件: {file_name}")
         heat_df = process_heat_station_file(file_path)
         if heat_df is not None:
             summary_data.append(heat_df)
 
-    # 处理中水文件
-    files_reclaimed = [
-        f
-        for f in os.listdir(input_dir)
-        if "中水用量表" in f and f.endswith(".xlsx") and not f.startswith("~$")
-    ]
+    # 处理中水文件 (递归搜索)
+    files_reclaimed = []
+    for root, dirs, files in os.walk(base_dir):
+        for f in files:
+            if "中水用量表" in f and f.endswith(".xlsx") and not f.startswith("~$"):
+                files_reclaimed.append(os.path.join(root, f))
 
-    for file_name in files_reclaimed:
-        file_path = os.path.join(input_dir, file_name)
+    for file_path in files_reclaimed:
+        file_name = os.path.basename(file_path)
         logger.info(f"[2025台账流] 正在处理中水文件: {file_name}")
-
         reclaimed_df = process_reclaimed_water_file(file_path)
         if reclaimed_df is not None:
             summary_data.append(reclaimed_df)
@@ -343,6 +396,7 @@ def process_phase2_workflow(input_dir, output_dir):
     group_name = "国会二期"
     summary_data = []
 
+    # 1. 处理主体结算表 (国会二期主体)
     files = [
         f
         for f in os.listdir(input_dir)
@@ -353,7 +407,7 @@ def process_phase2_workflow(input_dir, output_dir):
 
     for file_name in files:
         file_path = os.path.join(input_dir, file_name)
-        logger.info(f"[国会二期流] 正在处理文件: {file_name}")
+        logger.info(f"[国会二期流] 正在处理主体文件: {file_name}")
 
         try:
             xls = pd.ExcelFile(file_path)
@@ -378,6 +432,31 @@ def process_phase2_workflow(input_dir, output_dir):
                     summary_data.append(summary)
         except Exception as e:
             logger.error(f"处理文件 {file_name} 失败: {e}", exc_info=True)
+
+    # 2. 处理国会二期相关的中水文件
+    base_dir = (
+        os.path.dirname(input_dir)
+        if os.path.basename(input_dir) == "主体"
+        else input_dir
+    )
+    files_reclaimed = []
+    for root, dirs, files in os.walk(base_dir):
+        for f in files:
+            # 仅处理文件名包含 "国会二期" 和 "中水用量表" 的文件
+            if (
+                "中水用量表" in f
+                and "国会二期" in f
+                and f.endswith(".xlsx")
+                and not f.startswith("~$")
+            ):
+                files_reclaimed.append(os.path.join(root, f))
+
+    for file_path in files_reclaimed:
+        file_name = os.path.basename(file_path)
+        logger.info(f"[国会二期流] 正在处理中水文件: {file_name}")
+        reclaimed_df = process_reclaimed_water_file(file_path)
+        if reclaimed_df is not None:
+            summary_data.append(reclaimed_df)
 
     path = save_summary(summary_data, output_dir, group_name)
     return {group_name: path} if path else {}

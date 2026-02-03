@@ -135,14 +135,15 @@ def generate_pie_charts(
 
             for col in cost_cols:
                 val = row[col]
-                if val > 0:
+                # 仅包含金额大于 0 的项
+                if val > 0 and col != "总费用(元)":
                     values.append(val)
                     # Example: "电_费用(元)" -> "电"
                     energy_type = col.replace("_费用(元)", "")
                     labels.append(energy_type)
 
-            if not values:
-                logger.info(f"{date_range} 无费用数据，跳过图表生成。")
+            if not values or sum(values) <= 0:
+                logger.info(f"{date_range} 无费用数据或总费用为0，跳过图表生成。")
                 continue
 
             total_cost = sum(values)
@@ -153,21 +154,22 @@ def generate_pie_charts(
 
             # Pie chart
             # We use a legend to avoid label overlap on the chart itself
+            # 只有大于 0 的项才显示百分比标注，避免 0% 堆叠
             pie_colors = get_color_sequence(labels)
             wedges, texts, autotexts = plt.pie(  # type: ignore
                 values,
                 colors=pie_colors,
-                autopct="%1.1f%%",
+                autopct=lambda p: f"{p:.1f}%" if p > 0 else "",
                 startangle=140,
                 pctdistance=0.75,
                 textprops={"fontsize": 18},
             )
 
-            # Adjust distance for small slices (< 5%) to avoid overlap
+            # Adjust distance for small slices (0 < percentage < 5%) to avoid overlap
             small_slice_idx = 0
             for i, autotext in enumerate(autotexts):
-                percentage = values[i] / total_cost * 100
-                if percentage < 5:
+                percentage = (values[i] / total_cost * 100) if total_cost > 0 else 0
+                if 0 < percentage < 5:
                     # Alternating distances: 0.65 and 0.88 (original was 0.75)
                     new_dist = 0.65 if small_slice_idx % 2 == 0 else 0.88
                     curr_x, curr_y = autotext.get_position()
@@ -258,11 +260,12 @@ def generate_annual_pie_chart(
         labels = []
         for col in cost_cols:
             val = df[col].sum()
-            if val > 0:
+            # 仅包含总额大于 0 的项
+            if val > 0 and col != "总费用(元)":
                 values.append(val)
                 labels.append(col.replace("_费用(元)", ""))
 
-        if not values:
+        if not values or sum(values) <= 0:
             return
 
         total_cost = sum(values)
@@ -272,7 +275,7 @@ def generate_annual_pie_chart(
         wedges, texts, autotexts = plt.pie(  # type: ignore
             values,
             colors=pie_colors,
-            autopct="%1.1f%%",
+            autopct=lambda p: f"{p:.1f}%" if p > 0 else "",
             startangle=140,
             pctdistance=0.75,
             textprops={"fontsize": 18},
@@ -281,13 +284,14 @@ def generate_annual_pie_chart(
         # 交错显示小占比标注
         small_slice_idx = 0
         for i, autotext in enumerate(autotexts):
-            percentage = values[i] / total_cost * 100
-            if percentage < 5:
+            percentage = (values[i] / total_cost * 100) if total_cost > 0 else 0
+            if 0 < percentage < 5:
                 # 交错布局：0.65 和 0.88
                 new_dist = 0.65 if small_slice_idx % 2 == 0 else 0.88
                 curr_x, curr_y = autotext.get_position()
                 scale = new_dist / 0.75
                 autotext.set_position((curr_x * scale, curr_y * scale))
+                small_slice_idx += 1
                 if percentage < 2:
                     autotext.set_fontsize(14)
                 small_slice_idx += 1

@@ -133,11 +133,19 @@ def process_data():
             data[m_key]["采暖热_费用"] += get_val_row(row.iloc[2])
 
     # 3. Process Reclaimed Water File
-    reclaimed_files = [
-        f for f in os.listdir(input_dir) if "中水用量表" in f and f.endswith(".xlsx")
-    ]
-    for f in reclaimed_files:
-        path = os.path.join(input_dir, f)
+    # Search recursively to include ./input/B23/
+    base_dir = (
+        os.path.dirname(input_dir)
+        if os.path.basename(input_dir) == "主体"
+        else input_dir
+    )
+    reclaimed_files = []
+    for root, dirs, files in os.walk(base_dir):
+        for f in files:
+            if "中水用量表" in f and f.endswith(".xlsx") and not f.startswith("~$"):
+                reclaimed_files.append(os.path.join(root, f))
+
+    for path in reclaimed_files:
         df_raw = pd.read_excel(path, header=None)
         for i in range(len(df_raw)):
             row = df_raw.iloc[i]
@@ -151,13 +159,21 @@ def process_data():
 
             def get_val(idx):
                 try:
-                    v = float(row[idx])
-                    return v if not np.isnan(v) else 0.0
+                    val = row[idx]
+                    if pd.isna(val):
+                        return None
+                    return float(val)
                 except:
-                    return 0.0
+                    return None
 
-            data[m_key]["中水_用量"] += get_val(1)
-            data[m_key]["中水_费用"] += get_val(2)
+            vol = get_val(1) or 0.0
+            cost = get_val(2)
+            if cost is None:
+                # 如果费用列为空，按 1.0 元/立方米估算
+                cost = vol * 1.0
+
+            data[m_key]["中水_用量"] += vol
+            data[m_key]["中水_费用"] += cost
 
     # Convert to DataFrame
     df_result = pd.DataFrame.from_dict(data, orient="index")
