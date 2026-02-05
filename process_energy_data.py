@@ -156,6 +156,7 @@ def save_summary(summary_data, output_dir, group_name, save_excel=True):
         """提取字符串中的数字，用于按自然顺序（1月、2月...）排序"""
         if isinstance(x, str):
             import re
+
             match = re.search(r"(\d+)", x)
             if match:
                 return int(match.group(1))
