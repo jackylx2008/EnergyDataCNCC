@@ -126,7 +126,7 @@ def generate_pie_charts(
     参数:
         input_file: Excel 文件路径或包含汇总数据的 DataFrame。
         output_dir: 图表输出目录。
-        suffix: 匹配的列后缀 (例如 "_费用(元)" 或 "_标准煤(t标准煤)")。
+        suffix: 匹配的列后缀 (例如 "_费用(元)" 或 "_标准煤(吨标准煤)")。
         title_prefix: 标题前缀。
     """
     # Setup logging
@@ -236,7 +236,7 @@ def generate_pie_charts(
             if suffix == "_费用(元)":
                 unit = "元"
             elif "标准煤" in suffix:
-                unit = "t标准煤"
+                unit = "吨标准煤"
 
             # Create detailed legend labels
             val_fmt = ",.2f"  # All use 2 decimals now (Cost and Tons)
@@ -246,12 +246,15 @@ def generate_pie_charts(
 
             # Add legend to the right
             # Use fixed bbox_to_anchor to prevent legend size from affecting pie size
+            # bbox_transform=plt.gcf().transFigure ensures coordinates are relative to the whole figure (0 to 1)
+            # Pie Right Edge is approx at X=0.53 (calculated from subplots_adjust and equal axis)
             plt.legend(
                 wedges,
                 legend_labels,
                 title="分项明细",
                 loc="center left",
-                bbox_to_anchor=(0.68, 0.5),
+                bbox_to_anchor=(0.53, 0.51),
+                bbox_transform=plt.gcf().transFigure,
                 fontsize=30,
                 title_fontsize=30,
             )
@@ -377,7 +380,7 @@ def generate_annual_pie_chart(
         plt.title(f"全年{title_prefix}汇总", fontsize=28, pad=20)
         plt.axis("equal")
 
-        unit = "元" if suffix == "_费用(元)" else "t标准煤"
+        unit = "元" if suffix == "_费用(元)" else "吨标准煤"
         val_fmt = ",.2f"  # All use 2 decimals now
         legend_labels = [
             f"{label}: {val:{val_fmt}}{unit}" for label, val in zip(labels, values)
@@ -387,7 +390,8 @@ def generate_annual_pie_chart(
             legend_labels,
             title="分项明细",
             loc="center left",
-            bbox_to_anchor=(0.68, 0.5),
+            bbox_to_anchor=(0.53, 0.51),
+            bbox_transform=plt.gcf().transFigure,
             fontsize=30,
             title_fontsize=30,
         )

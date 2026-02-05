@@ -164,14 +164,14 @@ def save_summary(summary_data, output_dir, group_name, save_excel=True):
     pivot_df.sort_values("_sort_key", inplace=True)
     pivot_df.drop(columns=["_sort_key"], inplace=True)
 
-    # 计算标准煤 (t标准煤)
+    # 计算标准煤 (吨标准煤)
     config = load_config()
     coal_factors = config.get("coal_conversion", {})
 
     for energy_type, factor in coal_factors.items():
         usage_col = f"{energy_type}_实际消耗"
         if usage_col in pivot_df.columns:
-            coal_col = f"{energy_type}_标准煤(t标准煤)"
+            coal_col = f"{energy_type}_标准煤(吨标准煤)"
             # 计算并保留两位小数 (除以1000换算为吨)
             pivot_df[coal_col] = (pivot_df[usage_col] * factor / 1000.0).round(2)
 
@@ -182,7 +182,7 @@ def save_summary(summary_data, output_dir, group_name, save_excel=True):
     for energy_type in target_order:
         col_usage = f"{energy_type}_实际消耗"
         col_cost = f"{energy_type}_费用(元)"
-        col_coal = f"{energy_type}_标准煤(t标准煤)"
+        col_coal = f"{energy_type}_标准煤(吨标准煤)"
 
         # Check if this category exists and has any non-zero data
         active = False
@@ -207,12 +207,12 @@ def save_summary(summary_data, output_dir, group_name, save_excel=True):
     ordered_columns.extend(remaining_cols)
     pivot_df = pivot_df[ordered_columns]
 
-    # Calculate total cost and total t标准煤
+    # Calculate total cost and total 吨标准煤
     cost_cols = [col for col in pivot_df.columns if col.endswith("_费用(元)")]
     pivot_df["总费用(元)"] = pivot_df[cost_cols].sum(axis=1)
 
-    coal_cols = [col for col in pivot_df.columns if col.endswith("_标准煤(t标准煤)")]
-    pivot_df["总标准煤(t标准煤)"] = pivot_df[coal_cols].sum(axis=1)
+    coal_cols = [col for col in pivot_df.columns if col.endswith("_标准煤(吨标准煤)")]
+    pivot_df["总标准煤(吨标准煤)"] = pivot_df[coal_cols].sum(axis=1)
 
     output_path = None
     if save_excel:
