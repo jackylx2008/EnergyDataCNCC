@@ -17,6 +17,7 @@ from process_energy_data import load_config, process_energy_cost_workflow
 from generate_charts import (
     generate_pie_charts,
     generate_cost_bar_chart,
+    generate_coal_bar_chart,
     generate_grouped_bar_chart,
 )
 
@@ -84,6 +85,7 @@ def main():
         )
 
         generate_cost_bar_chart(input_file=summary_df, output_dir=group_charts_dir)
+        generate_coal_bar_chart(input_file=summary_df, output_dir=group_charts_dir)
         generate_grouped_bar_chart(input_file=summary_df, output_dir=group_charts_dir)
 
         logger.info(f"分组 [{group_name}] 图表生成完成。")

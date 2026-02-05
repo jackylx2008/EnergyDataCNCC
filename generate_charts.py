@@ -547,6 +547,131 @@ def generate_cost_bar_chart(
         logger.error(f"生成柱状图失败: {e}", exc_info=True)
 
 
+def generate_coal_bar_chart(
+    input_file: str | pd.DataFrame = "./output/energy_usage_summary.xlsx",
+    output_dir: str = "./output/charts",
+):
+    """
+    生成标准煤消耗对比堆叠柱状图。
+
+    以日期区间为 X 轴，标准煤为 Y 轴，展示各区间的总消耗。
+    """
+    logger = setup_logger(log_level=logging.INFO, log_file="./logs/charts.log")
+
+    if not isinstance(input_file, pd.DataFrame):
+        if not os.path.exists(input_file):
+            logger.error(f"未找到输入文件: {input_file}")
+            return
+        try:
+            df = pd.read_excel(input_file)
+        except Exception as e:
+            logger.error(f"读取 Excel 失败: {e}")
+            return
+    else:
+        df = input_file
+
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    try:
+        # Filter coal columns
+        coal_cols = [col for col in df.columns if col.endswith("_标准煤(吨标准煤)")]
+        if not coal_cols:
+            logger.warning("未找到用于柱状图的标准煤列。")
+            return
+
+        # Prepare data: Date Range as index, Columns as Energy Types
+        rename_map = {col: col.replace("_标准煤(吨标准煤)", "") for col in coal_cols}
+        plot_df = df.set_index("日期区间")[coal_cols].rename(columns=rename_map)
+
+        # Filter out rows with 0 total
+        plot_df = plot_df[plot_df.sum(axis=1) > 0]
+
+        if plot_df.empty:
+            logger.info("无有效的柱状图数据。")
+            return
+
+        # Create figure
+        plt.figure(figsize=(18, 12))
+        ax = plt.gca()
+
+        # Plot stacked bar chart with shared color palette
+        bar_colors = get_color_sequence(plot_df.columns.tolist())
+        plot_df.plot(
+            kind="bar",
+            stacked=True,
+            ax=ax,
+            width=0.6,
+            alpha=0.9,
+            color=bar_colors,
+        )
+
+        # Styling
+        plt.title("各区间标准煤消耗对比", fontsize=30, pad=25)
+        plt.xlabel("日期区间", fontsize=24, labelpad=15)
+        plt.ylabel("标准煤 (吨)", fontsize=24, labelpad=15)
+
+        # Y-axis formatter: No scaling, just comma separation
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda value, _: f"{value:,.0f}"))
+        plt.xticks(rotation=0, fontsize=20)
+        plt.yticks(fontsize=20)
+
+        # Legend
+        plt.legend(
+            title="能源类型",
+            fontsize=18,
+            title_fontsize=20,
+            bbox_to_anchor=(1.01, 1),
+            loc="upper left",
+        )
+
+        # Add total labels on top of bars
+        totals = plot_df.sum(axis=1)
+        for i, total in enumerate(totals):
+            ax.text(
+                i,
+                total,
+                f"{total:,.2f}",
+                ha="center",
+                va="bottom",
+                fontsize=18,
+                fontweight="bold",
+                color="black",
+            )
+
+        # Add value labels inside bars (only for significant values)
+        for c in ax.containers:
+            # Create labels
+            labels = []
+            for v in c:
+                height = v.get_height()
+                # Only label if height is > 5% of max total to avoid clutter
+                if height > totals.max() * 0.05:
+                    labels.append(f"{height:,.2f}")
+                else:
+                    labels.append("")
+            ax.bar_label(
+                c,  # type: ignore
+                labels=labels,
+                label_type="center",
+                fontsize=18,
+                color="black",
+                fontweight="bold",
+            )
+
+        plt.tight_layout()
+
+        output_path = os.path.join(output_dir, "coal_comparison_bar.png")
+        plt.savefig(output_path)
+        plt.close()
+
+        logger.info(f"已生成柱状图: {output_path}")
+        print(f"已生成柱状图: {output_path}")
+
+    except Exception as e:
+        logger.error(f"生成柱状图失败: {e}", exc_info=True)
+
+
 def generate_grouped_bar_chart(
     input_file: str | pd.DataFrame = "./output/energy_usage_summary.xlsx",
     output_dir: str = "./output/charts",
