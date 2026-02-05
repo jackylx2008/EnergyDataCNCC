@@ -587,6 +587,9 @@ def generate_coal_bar_chart(
         # Filter out rows with 0 total
         plot_df = plot_df[plot_df.sum(axis=1) > 0]
 
+        # Filter out columns with 0 total (e.g. Water/Reclaimed Water usually 0 coal)
+        plot_df = plot_df.loc[:, plot_df.sum(axis=0) > 0]
+
         if plot_df.empty:
             logger.info("无有效的柱状图数据。")
             return
