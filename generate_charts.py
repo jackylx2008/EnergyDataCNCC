@@ -242,12 +242,13 @@ def generate_pie_charts(
             ]
 
             # Add legend to the right
+            # Use fixed bbox_to_anchor to prevent legend size from affecting pie size
             plt.legend(
                 wedges,
                 legend_labels,
                 title="分项明细",
                 loc="center left",
-                bbox_to_anchor=(0.9, 0, 0.5, 1),
+                bbox_to_anchor=(0.95, 0.5),
                 fontsize=30,
                 title_fontsize=30,
             )
@@ -255,7 +256,7 @@ def generate_pie_charts(
             # Add total cost at the bottom
             total_label = "总额" if suffix != "_费用(元)" else "总费用"
             plt.figtext(
-                0.5,
+                0.4,
                 0.05,
                 f"{total_label}: {total_cost:,.2f} {unit}",
                 ha="center",
@@ -264,9 +265,9 @@ def generate_pie_charts(
                 color="#333333",
             )
 
-            # Adjust layout to make room for legend and bottom text
-            # rect=[left, bottom, right, top]
-            plt.tight_layout(rect=(0, 0.1, 0.85, 0.95))
+            # Use subplots_adjust instead of tight_layout to ensure fixed pie chart size
+            # regardless of legend items count or label lengths.
+            plt.subplots_adjust(left=0.05, bottom=0.12, right=0.75, top=0.9)
 
             # Save chart
             # Clean filename
@@ -379,13 +380,13 @@ def generate_annual_pie_chart(
             legend_labels,
             title="分项明细",
             loc="center left",
-            bbox_to_anchor=(0.9, 0, 0.5, 1),
+            bbox_to_anchor=(0.95, 0.5),
             fontsize=30,
             title_fontsize=30,
         )
 
         plt.figtext(
-            0.5,
+            0.4,
             0.05,
             f"全年总额: {total_cost:,.2f} {unit}",
             ha="center",
@@ -394,7 +395,7 @@ def generate_annual_pie_chart(
             color="#333333",
         )
 
-        plt.tight_layout(rect=(0, 0.1, 0.85, 0.95))
+        plt.subplots_adjust(left=0.05, bottom=0.12, right=0.75, top=0.9)
         file_prefix = "cost" if "费用" in title_prefix else "coal"
         output_path = os.path.join(
             output_dir, f"{file_prefix}_distribution_annual_summary.png"
