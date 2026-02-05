@@ -135,12 +135,12 @@ def save_summary(summary_data, output_dir, group_name, save_excel=True):
     pivot_df = final_df.pivot_table(
         index=["日期区间"],
         columns="能源类型",
-        values=["费用(元)"],
+        values=["费用(元)", "实际消耗"],
         aggfunc="sum",
         fill_value=0,
     )
 
-    # Swap levels to group by Energy Type (e.g., 电_费用)
+    # Swap levels and sort to group by Energy Type (e.g., 电_实际消耗, 电_费用)
     pivot_df.columns = pivot_df.columns.swaplevel(0, 1)
     pivot_df.sort_index(axis=1, level=0, inplace=True)
 
@@ -164,16 +164,39 @@ def save_summary(summary_data, output_dir, group_name, save_excel=True):
     pivot_df.sort_values("_sort_key", inplace=True)
     pivot_df.drop(columns=["_sort_key"], inplace=True)
 
+    # 计算标准煤 (kgce)
+    config = load_config()
+    coal_factors = config.get("coal_conversion", {})
+
+    for energy_type, factor in coal_factors.items():
+        usage_col = f"{energy_type}_实际消耗"
+        if usage_col in pivot_df.columns:
+            coal_col = f"{energy_type}_标准煤(kgce)"
+            pivot_df[coal_col] = pivot_df[usage_col] * factor
+
     # Reorder columns based on specific order, and exclude those with 0 total cost
     ordered_columns = ["日期区间"]
     target_order = ["电", "采暖热费", "生活热水热费", "自来水", "中水", "燃气"]
 
     for energy_type in target_order:
+        col_usage = f"{energy_type}_实际消耗"
         col_cost = f"{energy_type}_费用(元)"
-        if col_cost in pivot_df.columns:
-            # Check if this category has any non-zero costs
-            if pivot_df[col_cost].sum() > 0:
+        col_coal = f"{energy_type}_标准煤(kgce)"
+
+        # Check if this category exists and has any non-zero data
+        active = False
+        if col_cost in pivot_df.columns and pivot_df[col_cost].sum() > 0:
+            active = True
+        elif col_usage in pivot_df.columns and pivot_df[col_usage].sum() > 0:
+            active = True
+
+        if active:
+            if col_usage in pivot_df.columns:
+                ordered_columns.append(col_usage)
+            if col_cost in pivot_df.columns:
                 ordered_columns.append(col_cost)
+            if col_coal in pivot_df.columns:
+                ordered_columns.append(col_coal)
 
     remaining_cols = [
         col
@@ -183,9 +206,12 @@ def save_summary(summary_data, output_dir, group_name, save_excel=True):
     ordered_columns.extend(remaining_cols)
     pivot_df = pivot_df[ordered_columns]
 
-    # Calculate total cost
+    # Calculate total cost and total kgce
     cost_cols = [col for col in pivot_df.columns if col.endswith("_费用(元)")]
     pivot_df["总费用(元)"] = pivot_df[cost_cols].sum(axis=1)
+
+    coal_cols = [col for col in pivot_df.columns if col.endswith("_标准煤(kgce)")]
+    pivot_df["总标准煤(kgce)"] = pivot_df[coal_cols].sum(axis=1)
 
     output_path = None
     if save_excel:
@@ -330,14 +356,15 @@ def process_consolidated_file(file_path):
     file_name = os.path.basename(file_path)
     logger = logging.getLogger(__name__)
 
-    # 费用列索引 (0-based)
+    # 指向费用列索引 (0-based)
+    # 格式: {能源类型: (费用列, 用量列)}
     mapping = {
-        "电": 2,
-        "燃气": 10,
-        "采暖热费": 13,
-        "自来水": 19,
-        "生活热水热费": 21,
-        "中水": 24,
+        "电": (2, 1),
+        "燃气": (10, 9),
+        "采暖热费": (13, 11),  # 采暖热费用量在11列，12列是单价
+        "自来水": (19, 17),  # 自来水用量在17列 (R列)，18列是单价
+        "生活热水热费": (21, 20),
+        "中水": (24, 22),  # 中水用量在22列 (W列)，23列是单价
     }
 
     results = []
@@ -367,22 +394,26 @@ def process_consolidated_file(file_path):
             if "月" not in month:
                 continue
 
-            for energy_type, col_idx in mapping.items():
+            for energy_type, (cost_idx, usage_idx) in mapping.items():
                 cost = 0.0
-                if col_idx < len(row):
-                    try:
-                        val = row[col_idx]
-                        cost = float(val)
-                        if pd.isna(cost):
-                            cost = 0.0
-                    except (ValueError, TypeError):
-                        cost = 0.0
+                usage = 0.0
+
+                try:
+                    if cost_idx < len(row):
+                        cost_val = row[cost_idx]
+                        cost = float(cost_val) if not pd.isna(cost_val) else 0.0
+
+                    if usage_idx < len(row):
+                        usage_val = row[usage_idx]
+                        usage = float(usage_val) if not pd.isna(usage_val) else 0.0
+                except (ValueError, TypeError):
+                    pass
 
                 results.append(
                     {
                         "日期区间": month,
                         "能源类型": energy_type,
-                        "实际消耗": 0.0,  # Placeholder
+                        "实际消耗": usage,
                         "费用(元)": cost,
                         "来源文件": file_name,
                     }
@@ -416,7 +447,7 @@ def process_energy_cost_workflow(input_file, output_dir):
         logger.error("未提取到任何数据。")
 
     path, df_summary = save_summary(
-        summary_data, output_dir, group_name, save_excel=False
+        summary_data, output_dir, group_name, save_excel=True
     )
     return {group_name: df_summary} if df_summary is not None else {}
 

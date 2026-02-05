@@ -26,6 +26,24 @@ except ImportError:  # pragma: no cover - PyYAML optional
 
 from logging_config import setup_logger
 
+# Setup general chart module logger
+CHART_LOGGER = setup_logger(
+    log_level=logging.INFO, log_file="./logs/charts.log", filemode="a"
+)
+
+# Setup a dedicated logger for energy data details
+# We manually add a handler to avoid clearing root handlers via setup_logger
+DATA_LOGGER = logging.getLogger("energy_data_details")
+DATA_LOGGER.setLevel(logging.INFO)
+DATA_LOGGER.propagate = (
+    False  # Don't send to root logger to avoid duplication in charts.log
+)
+_data_handler = logging.FileHandler(
+    "./logs/energy_data_details.log", mode="a", encoding="utf-8"
+)
+_data_handler.setFormatter(logging.Formatter("%(asctime)s - %(message)s"))
+DATA_LOGGER.addHandler(_data_handler)
+
 # Configure Chinese font support for Matplotlib
 plt.rcParams["font.sans-serif"] = [
     "SimHei",
@@ -96,9 +114,11 @@ def get_color_sequence(labels):
 def generate_pie_charts(
     input_file: str | pd.DataFrame = "./output/energy_usage_summary.xlsx",
     output_dir: str = "./output/charts",
+    suffix: str = "_费用(元)",
+    title_prefix: str = "能源费用分布",
 ):
     """
-    生成费用分布饼图。
+    生成费用/用量分布饼图。
 
     遍历汇总数据中的每一行 (每个日期区间)，为每个区间生成一个饼图，
     显示不同能源类型的费用占比。
@@ -106,6 +126,8 @@ def generate_pie_charts(
     参数:
         input_file: Excel 文件路径或包含汇总数据的 DataFrame。
         output_dir: 图表输出目录。
+        suffix: 匹配的列后缀 (例如 "_费用(元)" 或 "_标准煤(kgce)")。
+        title_prefix: 标题前缀。
     """
     # Setup logging
     logger = setup_logger(log_level=logging.INFO, log_file="./logs/charts.log")
@@ -126,11 +148,12 @@ def generate_pie_charts(
         os.makedirs(output_dir)
 
     try:
-        # Identify cost columns
-        cost_cols = [col for col in df.columns if col.endswith("_费用(元)")]
+        # Identify relevant columns
+        cost_cols = [col for col in df.columns if col.endswith(suffix)]
+        total_col = "总费用(元)" if suffix == "_费用(元)" else f"总{suffix.lstrip('_')}"
 
         if not cost_cols:
-            logger.warning("未找到费用列。")
+            logger.warning(f"未找到后缀为 {suffix} 的列。")
             return
 
         for index, row in df.iterrows():
@@ -139,19 +162,31 @@ def generate_pie_charts(
             # Extract data for this row
             values = []
             labels = []
+            log_parts = [f"--- {title_prefix} 详情 ({date_range}) ---"]
 
             for col in cost_cols:
                 val = row[col]
-                # 仅包含金额大于 0 的项
-                if val > 0 and col != "总费用(元)":
+                # 仅包含数值大于 0 的项
+                if val > 0 and col != total_col:
                     values.append(val)
                     # Example: "电_费用(元)" -> "电"
-                    energy_type = col.replace("_费用(元)", "")
+                    energy_type = col.replace(suffix, "")
                     labels.append(energy_type)
+                    
+                    # Log physical usage if available
+                    usage_col = f"{energy_type}_用量"
+                    usage_str = ""
+                    if usage_col in df.columns:
+                        usage_val = row[usage_col]
+                        usage_str = f" (用量: {usage_val})"
+                    log_parts.append(f"{energy_type}: {val:,.2f}{usage_str}")
 
             if not values or sum(values) <= 0:
-                logger.info(f"{date_range} 无费用数据或总费用为0，跳过图表生成。")
+                logger.info(f"{date_range} 无数据或总量为0，跳过图表生成。")
                 continue
+
+            # Log to dedicated data logger
+            DATA_LOGGER.info(" | ".join(log_parts))
 
             total_cost = sum(values)
 
@@ -189,22 +224,28 @@ def generate_pie_charts(
                     small_slice_idx += 1
 
             plt.title(
-                f"能源费用分布 - {date_range}", fontsize=28, pad=20
+                f"{title_prefix} - {date_range}", fontsize=28, pad=20
             )  # Increased title font size
             plt.axis(
                 "equal"
             )  # Equal aspect ratio ensures that pie is drawn as a circle.
 
+            unit = suffix.split("(_")[-1].strip(")") if "(" in suffix else "单位"
+            if suffix == "_费用(元)":
+                unit = "元"
+            elif "kgce" in suffix:
+                unit = "kgce"
+
             # Create detailed legend labels
             legend_labels = [
-                f"{label}: {val:,.2f}元" for label, val in zip(labels, values)
+                f"{label}: {val:,.2f}{unit}" for label, val in zip(labels, values)
             ]
 
             # Add legend to the right
             plt.legend(
                 wedges,
                 legend_labels,
-                title="分项费用明细",
+                title="分项明细",
                 loc="center left",
                 bbox_to_anchor=(0.9, 0, 0.5, 1),
                 fontsize=30,
@@ -212,10 +253,11 @@ def generate_pie_charts(
             )
 
             # Add total cost at the bottom
+            total_label = "总额" if suffix != "_费用(元)" else "总费用"
             plt.figtext(
                 0.5,
                 0.05,
-                f"总费用: {total_cost:,.2f} 元",
+                f"{total_label}: {total_cost:,.2f} {unit}",
                 ha="center",
                 fontsize=26,
                 fontweight="bold",
@@ -233,8 +275,9 @@ def generate_pie_charts(
                 c for c in str(date_range) if c.isalnum() or c in allowed_chars
             ]
             safe_date_range = "".join(clean_chars).strip()
+            file_prefix = "cost" if "费用" in title_prefix else "coal"
             output_path = os.path.join(
-                output_dir, f"cost_distribution_{safe_date_range}.png"
+                output_dir, f"{file_prefix}_distribution_{safe_date_range}.png"
             )
 
             plt.savefig(output_path)
@@ -244,7 +287,7 @@ def generate_pie_charts(
             print(f"已生成图表: {output_path}")
 
         # 生成全年汇总饼图
-        generate_annual_pie_chart(input_file, output_dir)
+        generate_annual_pie_chart(input_file, output_dir, suffix, title_prefix)
 
     except Exception as e:
         logger.error(f"生成图表失败: {e}", exc_info=True)
@@ -253,9 +296,11 @@ def generate_pie_charts(
 def generate_annual_pie_chart(
     input_file: str | pd.DataFrame = "./output/energy_usage_summary.xlsx",
     output_dir: str = "./output/charts",
+    suffix: str = "_费用(元)",
+    title_prefix: str = "能源费用分布",
 ):
     """
-    生成全年能源费用分布饼图。
+    生成全年能源费用/用量分布饼图。
     """
     logger = setup_logger(log_level=logging.INFO, log_file="./logs/charts.log")
 
@@ -265,19 +310,34 @@ def generate_annual_pie_chart(
         else:
             df = input_file
 
-        cost_cols = [col for col in df.columns if col.endswith("_费用(元)")]
+        cost_cols = [col for col in df.columns if col.endswith(suffix)]
+        total_col = "总费用(元)" if suffix == "_费用(元)" else f"总{suffix.lstrip('_')}"
 
         values = []
         labels = []
+        log_parts = [f"===全年 {title_prefix} 汇总 ==="]
+
         for col in cost_cols:
             val = df[col].sum()
             # 仅包含总额大于 0 的项
-            if val > 0 and col != "总费用(元)":
+            if val > 0 and col != total_col:
                 values.append(val)
-                labels.append(col.replace("_费用(元)", ""))
+                energy_type = col.replace(suffix, "")
+                labels.append(energy_type)
+
+                # Log physical usage if available
+                usage_col = f"{energy_type}_用量"
+                usage_str = ""
+                if usage_col in df.columns:
+                    usage_val = df[usage_col].sum()
+                    usage_str = f" (用量: {usage_val})"
+                log_parts.append(f"{energy_type}: {val:,.2f}{usage_str}")
 
         if not values or sum(values) <= 0:
             return
+
+        # Log to dedicated data logger
+        DATA_LOGGER.info(" | ".join(log_parts))
 
         total_cost = sum(values)
 
@@ -307,14 +367,15 @@ def generate_annual_pie_chart(
                     autotext.set_fontsize(14)
                 small_slice_idx += 1
 
-        plt.title("全年能源费用分布汇总", fontsize=28, pad=20)
+        plt.title(f"全年{title_prefix}汇总", fontsize=28, pad=20)
         plt.axis("equal")
 
-        legend_labels = [f"{label}: {val:,.2f}元" for label, val in zip(labels, values)]
+        unit = "元" if suffix == "_费用(元)" else "kgce"
+        legend_labels = [f"{label}: {val:,.2f}{unit}" for label, val in zip(labels, values)]
         plt.legend(
             wedges,
             legend_labels,
-            title="分项费用明细",
+            title="分项明细",
             loc="center left",
             bbox_to_anchor=(0.9, 0, 0.5, 1),
             fontsize=30,
@@ -324,7 +385,7 @@ def generate_annual_pie_chart(
         plt.figtext(
             0.5,
             0.05,
-            f"全年总费用: {total_cost:,.2f} 元",
+            f"全年总额: {total_cost:,.2f} {unit}",
             ha="center",
             fontsize=26,
             fontweight="bold",
@@ -332,7 +393,8 @@ def generate_annual_pie_chart(
         )
 
         plt.tight_layout(rect=(0, 0.1, 0.85, 0.95))
-        output_path = os.path.join(output_dir, "cost_distribution_annual_summary.png")
+        file_prefix = "cost" if "费用" in title_prefix else "coal"
+        output_path = os.path.join(output_dir, f"{file_prefix}_distribution_annual_summary.png")
         plt.savefig(output_path)
         plt.close()
 

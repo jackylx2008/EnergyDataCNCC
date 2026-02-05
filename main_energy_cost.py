@@ -67,7 +67,22 @@ def main():
         print(f"正在生成图表，分组: {group_name}...")
         group_charts_dir = f"{output_dir}/charts_{group_name}"
 
-        generate_pie_charts(input_file=summary_df, output_dir=group_charts_dir)
+        # 生成费用分布饼图
+        generate_pie_charts(
+            input_file=summary_df,
+            output_dir=group_charts_dir,
+            suffix="_费用(元)",
+            title_prefix="能源费用分布",
+        )
+
+        # 生成标准煤(kgce)分布饼图
+        generate_pie_charts(
+            input_file=summary_df,
+            output_dir=group_charts_dir,
+            suffix="_标准煤(kgce)",
+            title_prefix="能源标准煤(kgce)分布",
+        )
+
         generate_cost_bar_chart(input_file=summary_df, output_dir=group_charts_dir)
         generate_grouped_bar_chart(input_file=summary_df, output_dir=group_charts_dir)
 
