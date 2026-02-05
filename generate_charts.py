@@ -54,8 +54,8 @@ plt.rcParams["axes.unicode_minus"] = False
 
 DEFAULT_ENERGY_COLOR_MAP = {
     "电": "#A8C8E1",
-    "采暖热费": "#C1E0A5",
-    "生活热水热费": "#F2B3B1",
+    "采暖用热": "#C1E0A5",
+    "生活热水用热": "#F2B3B1",
     "自来水": "#F28C28",
     "中水": "#7E5AA7",
     "燃气": "#B5754C",
@@ -721,7 +721,7 @@ def generate_grouped_bar_chart(
             return
 
         # Define groups
-        major_types = ["电", "采暖热费"]
+        major_types = ["电", "采暖用热"]
 
         # Sub-function to generate chart for a subset of columns
         def create_chart_for_columns(columns, suffix, title_suffix):

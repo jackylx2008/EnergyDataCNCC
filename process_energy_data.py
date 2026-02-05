@@ -177,7 +177,7 @@ def save_summary(summary_data, output_dir, group_name, save_excel=True):
 
     # Reorder columns based on specific order, and exclude those with 0 total cost
     ordered_columns = ["日期区间"]
-    target_order = ["电", "采暖热费", "生活热水热费", "自来水", "中水", "燃气"]
+    target_order = ["电", "采暖用热", "生活热水用热", "自来水", "中水", "燃气"]
 
     for energy_type in target_order:
         col_usage = f"{energy_type}_实际消耗"
@@ -311,7 +311,7 @@ def process_heat_station_file(file_path):
                     results.append(
                         {
                             "日期区间": month,
-                            "能源类型": "生活热水热费",
+                            "能源类型": "生活热水用热",
                             "实际消耗": 0.0,
                             "费用(元)": hw_val,
                             "来源文件": file_name,
@@ -327,7 +327,7 @@ def process_heat_station_file(file_path):
                     results.append(
                         {
                             "日期区间": month,
-                            "能源类型": "采暖热费",
+                            "能源类型": "采暖用热",
                             "实际消耗": 0.0,
                             "费用(元)": h_val,
                             "来源文件": file_name,
@@ -362,10 +362,12 @@ def process_consolidated_file(file_path):
     mapping = {
         "电": (2, 1),
         "燃气": (10, 9),
-        "采暖热费": (13, 11),  # 采暖热费用量在11列，12列是单价
+        # "采暖热费": (13, 11),  # 旧逻辑：热力合计
         "自来水": (19, 17),  # 自来水用量在17列 (R列)，18列是单价
-        "生活热水热费": (21, 20),
+        # "生活热水热费": (21, 20), # 旧逻辑：生活热水（实物量为升/立方米）
         "中水": (24, 22),  # 中水用量在22列 (W列)，23列是单价
+        "采暖用热": (27, 25),  # 新增：采暖热量 (吉焦)
+        "生活热水用热": (30, 28),  # 新增：生活热水热量 (吉焦)
     }
 
     results = []
