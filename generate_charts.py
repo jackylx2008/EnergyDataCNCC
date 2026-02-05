@@ -179,7 +179,9 @@ def generate_pie_charts(
                     if usage_col in df.columns:
                         usage_val = row[usage_col]
                         usage_str = f" (用量: {usage_val})"
-                    log_parts.append(f"{energy_type}: {val:,.2f}{usage_str}")
+
+                    unit_fmt = ",.0f" if "标准煤" in suffix else ",.2f"
+                    log_parts.append(f"{energy_type}: {val:{unit_fmt}}{usage_str}")
 
             if not values or sum(values) <= 0:
                 logger.info(f"{date_range} 无数据或总量为0，跳过图表生成。")
@@ -237,8 +239,9 @@ def generate_pie_charts(
                 unit = "kg标准煤"
 
             # Create detailed legend labels
+            val_fmt = ",.0f" if "标准煤" in suffix else ",.2f"
             legend_labels = [
-                f"{label}: {val:,.2f}{unit}" for label, val in zip(labels, values)
+                f"{label}: {val:{val_fmt}}{unit}" for label, val in zip(labels, values)
             ]
 
             # Add legend to the right
@@ -258,7 +261,7 @@ def generate_pie_charts(
             plt.figtext(
                 0.3,
                 0.05,
-                f"{total_label}: {total_cost:,.2f} {unit}",
+                f"{total_label}: {total_cost:{val_fmt}} {unit}",
                 ha="center",
                 fontsize=26,
                 fontweight="bold",
@@ -333,7 +336,9 @@ def generate_annual_pie_chart(
                 if usage_col in df.columns:
                     usage_val = df[usage_col].sum()
                     usage_str = f" (用量: {usage_val})"
-                log_parts.append(f"{energy_type}: {val:,.2f}{usage_str}")
+
+                unit_fmt = ",.0f" if "标准煤" in suffix else ",.2f"
+                log_parts.append(f"{energy_type}: {val:{unit_fmt}}{usage_str}")
 
         if not values or sum(values) <= 0:
             return
@@ -373,8 +378,9 @@ def generate_annual_pie_chart(
         plt.axis("equal")
 
         unit = "元" if suffix == "_费用(元)" else "kg标准煤"
+        val_fmt = ",.0f" if "标准煤" in suffix else ",.2f"
         legend_labels = [
-            f"{label}: {val:,.2f}{unit}" for label, val in zip(labels, values)
+            f"{label}: {val:{val_fmt}}{unit}" for label, val in zip(labels, values)
         ]
         plt.legend(
             wedges,
@@ -389,7 +395,7 @@ def generate_annual_pie_chart(
         plt.figtext(
             0.3,
             0.05,
-            f"全年总额: {total_cost:,.2f} {unit}",
+            f"全年总额: {total_cost:{val_fmt}} {unit}",
             ha="center",
             fontsize=26,
             fontweight="bold",

@@ -172,7 +172,8 @@ def save_summary(summary_data, output_dir, group_name, save_excel=True):
         usage_col = f"{energy_type}_实际消耗"
         if usage_col in pivot_df.columns:
             coal_col = f"{energy_type}_标准煤(kg标准煤)"
-            pivot_df[coal_col] = pivot_df[usage_col] * factor
+            # 计算并四舍五入取整
+            pivot_df[coal_col] = (pivot_df[usage_col] * factor).round(0).astype(int)
 
     # Reorder columns based on specific order, and exclude those with 0 total cost
     ordered_columns = ["日期区间"]
