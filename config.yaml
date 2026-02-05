@@ -1,12 +1,10 @@
-# GetDwgInfo 配置文件
-
 # 日志配置
 log_level: INFO  # 日志级别: DEBUG, INFO, WARNING, ERROR, CRITICAL
-log_file: ./logs/main_2025.log  # 日志文件路径
+log_file: ./logs/main_energy_cost.log  # 日志文件路径
 
 # 输入/输出配置
 paths:
-  input_dir: ./input/主体 # 输入文件目录
+  input_file: D:/CloudStation/国会二期/02 能源工程师/2025年度北辰会投水电气热用量统计表/会展分公司/会展分公司统计水电气热月度基础数据（扣除租户展商）.xlsx # 输入文件目录
   output_dir: ./output  # 输出文件目录
 
 # 可视化配色配置

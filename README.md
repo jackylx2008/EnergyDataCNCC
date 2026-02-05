@@ -21,11 +21,11 @@
 EnergyDataCNCC/
 ├── input/                  # 输入目录：存放原始 Excel 文件
 ├── output/                 # 输出目录：存放汇总报表和图表
-│   └── charts/             # 生成的图片文件
+│   └── charts_能耗费用/    # 生成的图片文件
 ├── data/                   # 缓存目录：存放 Parquet 缓存文件
 ├── logs/                   # 日志目录
 ├── config.yaml             # 配置文件
-├── main.py                 # 主程序入口
+├── main_energy_cost.py      # 主程序入口 (能耗费用工作流)
 ├── process_energy_data.py  # 数据处理核心逻辑
 ├── energy_models.py        # 数据模型与清洗逻辑
 ├── generate_charts.py      # 图表生成模块
@@ -56,12 +56,12 @@ pip install pandas matplotlib openpyxl pyarrow pyyaml
 3. **运行**:
 
    ```bash
-   python main.py
+   python main_energy_cost.py
    ```
 
 4. **查看结果**:
-   * 汇总表格: `output/energy_usage_summary.xlsx`
-   * 统计图表: `output/charts/`
+   * 汇总表格: `output/energy_summary_能耗费用.xlsx`
+   * 统计图表: `output/charts_能耗费用/`
 
 ## 详细说明
 

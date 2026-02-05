@@ -94,7 +94,7 @@ def get_color_sequence(labels):
 
 
 def generate_pie_charts(
-    input_file: str = "./output/energy_usage_summary.xlsx",
+    input_file: str | pd.DataFrame = "./output/energy_usage_summary.xlsx",
     output_dir: str = "./output/charts",
 ):
     """
@@ -103,22 +103,29 @@ def generate_pie_charts(
     遍历汇总数据中的每一行 (每个日期区间)，为每个区间生成一个饼图，
     显示不同能源类型的费用占比。
 
-    输出:
-        在 output_dir 目录下生成 cost_distribution_{日期区间}.png
+    参数:
+        input_file: Excel 文件路径或包含汇总数据的 DataFrame。
+        output_dir: 图表输出目录。
     """
     # Setup logging
     logger = setup_logger(log_level=logging.INFO, log_file="./logs/charts.log")
 
-    if not os.path.exists(input_file):
-        logger.error(f"未找到输入文件: {input_file}")
-        return
+    if not isinstance(input_file, pd.DataFrame):
+        if not os.path.exists(input_file):
+            logger.error(f"未找到输入文件: {input_file}")
+            return
+        try:
+            df = pd.read_excel(input_file)
+        except Exception as e:
+            logger.error(f"读取 Excel 失败: {e}")
+            return
+    else:
+        df = input_file
 
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
     try:
-        df = pd.read_excel(input_file)
-
         # Identify cost columns
         cost_cols = [col for col in df.columns if col.endswith("_费用(元)")]
 
@@ -333,7 +340,7 @@ def generate_annual_pie_chart(
 
 
 def generate_cost_bar_chart(
-    input_file: str = "./output/energy_usage_summary.xlsx",
+    input_file: str | pd.DataFrame = "./output/energy_usage_summary.xlsx",
     output_dir: str = "./output/charts",
 ):
     """
@@ -341,22 +348,25 @@ def generate_cost_bar_chart(
 
     以日期区间为 X 轴，费用为 Y 轴，展示各区间的总费用。
     不同能源类型的费用在柱状图中堆叠显示，方便比较总费用及构成。
-
-    输出:
-        output_dir/cost_comparison_bar.png
     """
     logger = setup_logger(log_level=logging.INFO, log_file="./logs/charts.log")
 
-    if not os.path.exists(input_file):
-        logger.error(f"未找到输入文件: {input_file}")
-        return
+    if not isinstance(input_file, pd.DataFrame):
+        if not os.path.exists(input_file):
+            logger.error(f"未找到输入文件: {input_file}")
+            return
+        try:
+            df = pd.read_excel(input_file)
+        except Exception as e:
+            logger.error(f"读取 Excel 失败: {e}")
+            return
+    else:
+        df = input_file
 
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
     try:
-        df = pd.read_excel(input_file)
-
         # Filter cost columns
         cost_cols = [col for col in df.columns if col.endswith("_费用(元)")]
         if not cost_cols:
@@ -456,7 +466,7 @@ def generate_cost_bar_chart(
 
 
 def generate_grouped_bar_chart(
-    input_file: str = "./output/energy_usage_summary.xlsx",
+    input_file: str | pd.DataFrame = "./output/energy_usage_summary.xlsx",
     output_dir: str = "./output/charts",
 ):
     """
@@ -464,23 +474,25 @@ def generate_grouped_bar_chart(
     根据费用的数量级，自动将数据分为两组生成两张图表：
     1. 主要能源：电、采暖热费
     2. 其他能源：自来水、燃气、生活热水热费等
-
-    输出:
-        output_dir/cost_grouped_bar_major.png (电、采暖热费)
-        output_dir/cost_grouped_bar_minor.png (其他)
     """
     logger = setup_logger(log_level=logging.INFO, log_file="./logs/charts.log")
 
-    if not os.path.exists(input_file):
-        logger.error(f"未找到输入文件: {input_file}")
-        return
+    if not isinstance(input_file, pd.DataFrame):
+        if not os.path.exists(input_file):
+            logger.error(f"未找到输入文件: {input_file}")
+            return
+        try:
+            df = pd.read_excel(input_file)
+        except Exception as e:
+            logger.error(f"读取 Excel 失败: {e}")
+            return
+    else:
+        df = input_file
 
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
     try:
-        df = pd.read_excel(input_file)
-
         # Filter cost columns
         cost_cols = [col for col in df.columns if col.endswith("_费用(元)")]
         if not cost_cols:

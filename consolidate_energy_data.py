@@ -69,32 +69,32 @@ def process_data():
                 continue
 
             # Helper to safely get float
-            def get_val(idx):
+            def get_val_ledger(idx):
                 try:
                     if idx >= len(row):
                         return 0.0
                     v = float(row[idx])
                     return v if not np.isnan(v) else 0.0
-                except:
+                except Exception:
                     return 0.0
 
-            data[m_key]["电_用量"] += get_val(1)
-            data[m_key]["电_费用"] += get_val(2)
-            data[m_key]["燃气_用量"] += get_val(7)
-            data[m_key]["燃气_费用"] += get_val(8)
+            data[m_key]["电_用量"] += get_val_ledger(1)
+            data[m_key]["电_费用"] += get_val_ledger(2)
+            data[m_key]["燃气_用量"] += get_val_ledger(7)
+            data[m_key]["燃气_费用"] += get_val_ledger(8)
 
             # For Heat: Ledger Col 9/10 is usually the Total Heat.
             # We will use the Heat Station file to split the COST later.
             # But the volume in Col 9 is generally the heating volume (GJ).
-            data[m_key]["采暖热_用量"] += get_val(9)
+            data[m_key]["采暖热_用量"] += get_val_ledger(9)
             # We don't add cost to 采暖热_费用 yet, or we add total and correct later.
             # Let's just store the volume for now.
             # DHW volume is Col 16.
-            data[m_key]["生活热水_用量"] += get_val(16)
+            data[m_key]["生活热水_用量"] += get_val_ledger(16)
 
             # Tap Water logic with fix
-            vol_w = get_val(14)
-            cost_w = get_val(15)
+            vol_w = get_val_ledger(14)
+            cost_w = get_val_ledger(15)
             if cost_w == 0 and vol_w > 0:
                 cost_w = vol_w * 9.5
 
@@ -126,7 +126,7 @@ def process_data():
                 try:
                     v = float(val)
                     return v if not np.isnan(v) else 0.0
-                except:
+                except Exception:
                     return 0.0
 
             data[m_key]["生活热水_费用"] += get_val_row(row.iloc[1])
@@ -157,17 +157,17 @@ def process_data():
                 continue
             m_key = f"{m_idx}月"
 
-            def get_val(idx):
+            def get_val_reclaimed(idx):
                 try:
                     val = row[idx]
                     if pd.isna(val):
                         return None
                     return float(val)
-                except:
+                except Exception:
                     return None
 
-            vol = get_val(1) or 0.0
-            cost = get_val(2)
+            vol = get_val_reclaimed(1) or 0.0
+            cost = get_val_reclaimed(2)
             if cost is None:
                 # 如果费用列为空，按 1.0 元/立方米估算
                 cost = vol * 1.0

@@ -23,7 +23,7 @@ from energy_models import EnergySheet
 
 def process_ledger_file(file_path):
     """
-    处理 2025 台账格式的 Excel 文件。
+    处理台账格式的 Excel 文件。
     返回一个包含汇总数据的 list of DataFrames。
     """
     file_name = os.path.basename(file_path)
@@ -110,14 +110,23 @@ def load_config(config_path="config.yaml"):
         return yaml.safe_load(f)
 
 
-def save_summary(summary_data, output_dir, group_name):
+def save_summary(summary_data, output_dir, group_name, save_excel=True):
     """
-    Helper function to save summary data for a group.
+    汇总分组数据。
+
+    参数:
+        summary_data (list): 包含 DataFrames 的列表。
+        output_dir (str): 输出目录。
+        group_name (str): 分组名称。
+        save_excel (bool): 是否保存为 Excel 文件。默认为 True。
+
+    返回:
+        tuple: (output_path, pivot_df) 如果未保存文件，output_path 为 None。
     """
     logger = logging.getLogger(__name__)
 
     if not summary_data:
-        return None
+        return None, None
 
     logger.info(f"正在汇总分组数据: {group_name}")
     final_df = pd.concat(summary_data, ignore_index=True)
@@ -178,11 +187,13 @@ def save_summary(summary_data, output_dir, group_name):
     cost_cols = [col for col in pivot_df.columns if col.endswith("_费用(元)")]
     pivot_df["总费用(元)"] = pivot_df[cost_cols].sum(axis=1)
 
-    output_path = os.path.join(output_dir, f"energy_summary_{group_name}.xlsx")
-    pivot_df.to_excel(output_path, index=False)
-    logger.info(f"分组 {group_name} 汇总已保存至 {output_path}")
+    output_path = None
+    if save_excel:
+        output_path = os.path.join(output_dir, f"energy_summary_{group_name}.xlsx")
+        pivot_df.to_excel(output_path, index=False)
+        logger.info(f"分组 {group_name} 汇总已保存至 {output_path}")
 
-    return output_path
+    return output_path, pivot_df
 
 
 def process_reclaimed_water_file(file_path):
@@ -213,7 +224,7 @@ def process_reclaimed_water_file(file_path):
                         return None
                     try:
                         return float(val)
-                    except:
+                    except (ValueError, TypeError):
                         return None
 
                 raw_vol = convert_to_float(row[1]) if len(row) > 1 else None
@@ -304,88 +315,110 @@ def process_heat_station_file(file_path):
         return None
 
 
-def process_2025_workflow(input_dir, output_dir):
+def process_consolidated_file(file_path):
     """
-    工作流 1: 处理 2025 年度台账及中水文件
+    处理合并后的水电气热用量统计表。
+    所有数据在一个 ExcelSheet 中。
+    Mapping derived from "商管分公司统计水电气热月度基础数据（扣除租户展商）.xlsx":
+    - 电: Col 2 (Cost)
+    - 燃气: Col 10 (Cost)
+    - 采暖热费: Col 13 (Cost)
+    - 自来水: Col 19 (Cost)
+    - 生活热水热费: Col 21 (Cost)
+    - 中水: Col 24 (Cost)
+    """
+    file_name = os.path.basename(file_path)
+    logger = logging.getLogger(__name__)
+
+    # 费用列索引 (0-based)
+    mapping = {
+        "电": 2,
+        "燃气": 10,
+        "采暖热费": 13,
+        "自来水": 19,
+        "生活热水热费": 21,
+        "中水": 24,
+    }
+
+    results = []
+    try:
+        # Read without header first to find the starting row
+        df_raw = pd.read_excel(file_path, sheet_name=0, header=None)
+
+        # 寻找 '1月' 所在的行
+        start_row = -1
+        for i in range(len(df_raw)):
+            val = str(df_raw.iloc[i, 0]).strip()
+            if val == "1月":
+                start_row = i
+                break
+
+        if start_row == -1:
+            logger.error(f"在文件 {file_name} 中未找到 '1月' 开始的行")
+            return None
+
+        # Process up to 12 months
+        for i in range(start_row, start_row + 12):
+            if i >= len(df_raw):
+                break
+
+            row = df_raw.iloc[i]
+            month = str(row[0]).strip()
+            if "月" not in month:
+                continue
+
+            for energy_type, col_idx in mapping.items():
+                cost = 0.0
+                if col_idx < len(row):
+                    try:
+                        val = row[col_idx]
+                        cost = float(val)
+                        if pd.isna(cost):
+                            cost = 0.0
+                    except (ValueError, TypeError):
+                        cost = 0.0
+
+                results.append(
+                    {
+                        "日期区间": month,
+                        "能源类型": energy_type,
+                        "实际消耗": 0.0,  # Placeholder
+                        "费用(元)": cost,
+                        "来源文件": file_name,
+                    }
+                )
+
+        return pd.DataFrame(results)
+
+    except Exception as e:
+        logger.error(f"处理合并文件 {file_name} 失败: {e}")
+        return None
+
+
+def process_energy_cost_workflow(input_file, output_dir):
+    """
+    工作流: 从能耗费用角度处理数据
     """
     logger = logging.getLogger(__name__)
-    group_name = "2025台账"
+    group_name = "能耗费用"
     summary_data = []
 
-    # 处理主要的 2025 台账文件
-    files_ledger = [
-        f
-        for f in os.listdir(input_dir)
-        if f.endswith(".xlsx")
-        and ("台账" in f or f.startswith("2025"))
-        and not f.startswith("~$")
-        and "热力站" not in f  # 排除专门的热力站费用文件
-    ]
+    if not os.path.exists(input_file):
+        logger.error(f"输入文件不存在: {input_file}")
+        return {}
 
-    for file_name in files_ledger:
-        file_path = os.path.join(input_dir, file_name)
-        logger.info(f"[2025台账流] 正在处理台账文件: {file_name}")
+    logger.info(f"[能耗费用流] 正在处理合并台账文件: {input_file}")
+    df = process_consolidated_file(input_file)
 
-        ledger_df = process_ledger_file(file_path)
-        if ledger_df is not None:
-            summary_data.append(ledger_df)
+    if df is not None:
+        summary_data.append(df)
+    else:
+        logger.error("未提取到任何数据。")
 
-    # 包含 B23 目录下的台账文件 (如果是 2025 台账)
-    base_dir = (
-        os.path.dirname(input_dir)
-        if os.path.basename(input_dir) == "主体"
-        else input_dir
+    path, df_summary = save_summary(
+        summary_data, output_dir, group_name, save_excel=False
     )
-    b23_dir = os.path.join(base_dir, "B23")
-    if os.path.exists(b23_dir):
-        files_b23 = [
-            f
-            for f in os.listdir(b23_dir)
-            if f.endswith(".xlsx")
-            and ("台账" in f or f.startswith("2025"))
-            and not f.startswith("~$")
-        ]
-        for file_name in files_b23:
-            file_path = os.path.join(b23_dir, file_name)
-            logger.info(f"[2025台账流] 正在处理 B23 台账文件: {file_name}")
-            ledger_df = process_ledger_file(file_path)
-            if ledger_df is not None:
-                summary_data.append(ledger_df)
-
-    # 处理特定的热力站费用文件 (递归搜索)
-    files_heat = []
-    for root, dirs, files in os.walk(base_dir):
-        for f in files:
-            if (
-                "热力站供暖费与生活热水费" in f
-                and f.endswith(".xlsx")
-                and not f.startswith("~$")
-            ):
-                files_heat.append(os.path.join(root, f))
-
-    for file_path in files_heat:
-        file_name = os.path.basename(file_path)
-        logger.info(f"[2025台账流] 正在处理热力文件: {file_name}")
-        heat_df = process_heat_station_file(file_path)
-        if heat_df is not None:
-            summary_data.append(heat_df)
-
-    # 处理中水文件 (递归搜索)
-    files_reclaimed = []
-    for root, dirs, files in os.walk(base_dir):
-        for f in files:
-            if "中水用量表" in f and f.endswith(".xlsx") and not f.startswith("~$"):
-                files_reclaimed.append(os.path.join(root, f))
-
-    for file_path in files_reclaimed:
-        file_name = os.path.basename(file_path)
-        logger.info(f"[2025台账流] 正在处理中水文件: {file_name}")
-        reclaimed_df = process_reclaimed_water_file(file_path)
-        if reclaimed_df is not None:
-            summary_data.append(reclaimed_df)
-
-    path = save_summary(summary_data, output_dir, group_name)
-    return {group_name: path} if path else {}
+    return {group_name: df_summary} if df_summary is not None else {}
 
 
 def process_phase2_workflow(input_dir, output_dir):
@@ -458,8 +491,8 @@ def process_phase2_workflow(input_dir, output_dir):
         if reclaimed_df is not None:
             summary_data.append(reclaimed_df)
 
-    path = save_summary(summary_data, output_dir, group_name)
-    return {group_name: path} if path else {}
+    path, df_summary = save_summary(summary_data, output_dir, group_name)
+    return {group_name: df_summary} if df_summary is not None else {}
 
 
 def process_excel_files():
@@ -477,25 +510,36 @@ def process_excel_files():
     # 如果会重复添加 handler，可能需要注意。这里假设 setup_logger 是安全的。
     logger = setup_logger(log_level=log_level, log_file=log_file)
 
-    input_dir = config["paths"]["input_dir"]
     output_dir = config["paths"]["output_dir"]
-
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
+    input_file = None
+    input_dir = None
+    if "input_file" in config["paths"]:
+        input_file = config["paths"]["input_file"]  # New Input File
+        input_dir = os.path.dirname(input_file)
+    else:
+        input_dir = config["paths"].get("input_dir")
+
     all_summaries = {}
 
-    # 执行 2025 台账工作流
+    # 执行能耗费用工作流
     try:
-        res1 = process_2025_workflow(input_dir, output_dir)
-        all_summaries.update(res1)
+        if input_file:
+            res1 = process_energy_cost_workflow(input_file, output_dir)
+            all_summaries.update(res1)
+        else:
+            # Fallback logic if needed, or just skip
+            pass
     except Exception as e:
-        logger.error(f"2025 台账工作流执行失败: {e}")
+        logger.error(f"能耗费用工作流执行失败: {e}")
 
     # 执行 国会二期工作流
     try:
-        res2 = process_phase2_workflow(input_dir, output_dir)
-        all_summaries.update(res2)
+        if input_dir:
+            res2 = process_phase2_workflow(input_dir, output_dir)
+            all_summaries.update(res2)
     except Exception as e:
         logger.error(f"国会二期工作流执行失败: {e}")
 
