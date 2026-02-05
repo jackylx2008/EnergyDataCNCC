@@ -9,6 +9,9 @@
 """
 
 import logging
+import os
+import shutil
+import time
 from logging_config import setup_logger
 from process_energy_data import load_config, process_energy_cost_workflow
 from generate_charts import (
@@ -29,6 +32,24 @@ def main():
     # input_dir = config["paths"]["input_dir"] # Deprecated
     input_file = config["paths"]["input_file"]  # New Input File
     output_dir = config["paths"]["output_dir"]
+
+    # 清空输出目录
+    if os.path.exists(output_dir):
+        logger.info(f"正在清空输出目录: {output_dir}")
+        for filename in os.listdir(output_dir):
+            file_path = os.path.join(output_dir, filename)
+            try:
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path)
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
+            except Exception as e:
+                logger.error(f"无法删除 {file_path}: {e}")
+
+        logger.info("清空完成，休息 2 秒...")
+        time.sleep(2)
+    else:
+        os.makedirs(output_dir)
 
     print("正在处理能耗费用数据...")
 

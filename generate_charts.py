@@ -251,7 +251,7 @@ def generate_pie_charts(
 
 
 def generate_annual_pie_chart(
-    input_file: str = "./output/energy_usage_summary.xlsx",
+    input_file: str | pd.DataFrame = "./output/energy_usage_summary.xlsx",
     output_dir: str = "./output/charts",
 ):
     """
@@ -260,7 +260,11 @@ def generate_annual_pie_chart(
     logger = setup_logger(log_level=logging.INFO, log_file="./logs/charts.log")
 
     try:
-        df = pd.read_excel(input_file)
+        if not isinstance(input_file, pd.DataFrame):
+            df = pd.read_excel(input_file)
+        else:
+            df = input_file
+
         cost_cols = [col for col in df.columns if col.endswith("_费用(元)")]
 
         values = []
