@@ -34,6 +34,10 @@ def main():
     input_file = config["paths"]["input_file"]  # New Input File
     output_dir = config["paths"]["output_dir"]
 
+    print(f"配置文件已加载。")
+    print(f"输入文件路径: {input_file}")
+    print(f"输出目录: {output_dir}")
+
     # 清空输出目录
     if os.path.exists(output_dir):
         logger.info(f"正在清空输出目录: {output_dir}")
@@ -90,6 +94,22 @@ def main():
 
         logger.info(f"分组 [{group_name}] 图表生成完成。")
         print(f"图表已保存至: {group_charts_dir}")
+
+        # 显示全年关键指标
+        if "日期区间" in summary_df.columns:
+            annual_row = summary_df[summary_df["日期区间"] == "全年合计"]
+            if not annual_row.empty:
+                total_coal = annual_row["总标准煤(吨标准煤)"].values[0]
+                efficiency_col = "万元营收标准煤耗(kg/万元营收)"
+                efficiency = (
+                    annual_row[efficiency_col].values[0]
+                    if efficiency_col in annual_row.columns
+                    else 0
+                )
+
+                print(f"\n>>> [{group_name}] 全年关键指标摘要:")
+                print(f"    - 全年总标准煤量: {total_coal:.2f} 吨")
+                print(f"    - 万元营收标准煤耗: {efficiency:.2f} kg/万元")
 
     print("\n" + "=" * 50)
     print("能耗费用数据处理工作流执行完成！")

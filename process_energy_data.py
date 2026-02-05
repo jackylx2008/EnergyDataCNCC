@@ -15,6 +15,7 @@
 
 import os
 import yaml
+import re
 import pandas as pd
 import logging
 from logging_config import setup_logger
@@ -152,9 +153,9 @@ def save_summary(summary_data, output_dir, group_name, save_excel=True):
 
     # 排序逻辑: 尝试按月份数字排序
     def sort_key(x):
+        """提取字符串中的数字，用于按自然顺序（1月、2月...）排序"""
         if isinstance(x, str):
             import re
-
             match = re.search(r"(\d+)", x)
             if match:
                 return int(match.group(1))
@@ -213,6 +214,64 @@ def save_summary(summary_data, output_dir, group_name, save_excel=True):
 
     coal_cols = [col for col in pivot_df.columns if col.endswith("_标准煤(吨标准煤)")]
     pivot_df["总标准煤(吨标准煤)"] = pivot_df[coal_cols].sum(axis=1)
+
+    # 1. 添加 "全年合计" 行
+    totals = pivot_df.sum(numeric_only=True)
+    totals["日期区间"] = "全年合计"
+    pivot_df = pd.concat([pivot_df, pd.DataFrame([totals])], ignore_index=True)
+
+    # 2. 提取年份以获取经营收入
+    year = 2025  # 默认 2025
+    try:
+        source_file = final_df["来源文件"].iloc[0]
+        year_match = re.search(r"(20\d{2})", source_file)
+        if year_match:
+            year = int(year_match.group(1))
+    except Exception:
+        pass
+
+    # 3. 处理经营收入和万元营收标准煤耗指标
+    revenue_data = config.get("operating_revenue", {}).get(year)
+    if revenue_data:
+        pivot_df["万元营收标准煤耗(kg/万元营收)"] = 0.0
+
+        if isinstance(revenue_data, dict):
+            # 存在月度收入数据
+            def get_month_num(m_str):
+                m = re.search(r"(\d+)", str(m_str))
+                return int(m.group(1)) if m else None
+
+            # 计算各个月份的指标
+            for idx, row in pivot_df.iterrows():
+                m_num = get_month_num(row["日期区间"])
+                if m_num in revenue_data:
+                    rev = revenue_data[m_num]
+                    if rev > 0:
+                        efficiency = round(
+                            (row["总标准煤(吨标准煤)"] * 1000.0 / rev), 2
+                        )
+                        pivot_df.at[idx, "万元营收标准煤耗(kg/万元营收)"] = efficiency
+
+            # 计算全年的指标
+            total_rev = sum(revenue_data.values())
+            if total_rev > 0:
+                total_coal = pivot_df.loc[
+                    pivot_df["日期区间"] == "全年合计", "总标准煤(吨标准煤)"
+                ].values[0]
+                total_efficiency = round((total_coal * 1000.0 / total_rev), 2)
+                pivot_df.loc[
+                    pivot_df["日期区间"] == "全年合计", "万元营收标准煤耗(kg/万元营收)"
+                ] = total_efficiency
+
+        elif isinstance(revenue_data, (int, float)) and revenue_data > 0:
+            # 仅有年度总收入数据，仅计算全年合计行的指标
+            total_coal = pivot_df.loc[
+                pivot_df["日期区间"] == "全年合计", "总标准煤(吨标准煤)"
+            ].values[0]
+            total_efficiency = round((total_coal * 1000.0 / revenue_data), 2)
+            pivot_df.loc[
+                pivot_df["日期区间"] == "全年合计", "万元营收标准煤耗(kg/万元营收)"
+            ] = total_efficiency
 
     output_path = None
     if save_excel:
@@ -346,16 +405,21 @@ def process_consolidated_file(file_path):
     """
     处理合并后的水电气热用量统计表。
     所有数据在一个 ExcelSheet 中。
-    Mapping derived from "商管分公司统计水电气热月度基础数据（扣除租户展商）.xlsx":
-    - 电: Col 2 (Cost)
-    - 燃气: Col 10 (Cost)
-    - 采暖热费: Col 13 (Cost)
-    - 自来水: Col 19 (Cost)
-    - 生活热水热费: Col 21 (Cost)
-    - 中水: Col 24 (Cost)
+    mapping 对应 "商管分公司统计水电气热月度基础数据（扣除租户展商）.xlsx"
     """
     file_name = os.path.basename(file_path)
     logger = logging.getLogger(__name__)
+
+    print(f"--- 正在处理文件: {file_path} ---")
+    if os.path.exists(file_path):
+        import time
+
+        mtime = os.path.getmtime(file_path)
+        print(f"文件修改时间: {time.ctime(mtime)}")
+    else:
+        logger.error(f"文件不存在: {file_path}")
+        print(f"Error: 文件不存在: {file_path}")
+        return None
 
     # 指向费用列索引 (0-based)
     # 格式: {能源类型: (费用列, 用量列)}
@@ -374,18 +438,23 @@ def process_consolidated_file(file_path):
     try:
         # Read without header first to find the starting row
         df_raw = pd.read_excel(file_path, sheet_name=0, header=None)
+        print(f"Excel 读取成功，共 {len(df_raw)} 行。")
 
         # 寻找 '1月' 所在的行
         start_row = -1
         for i in range(len(df_raw)):
             val = str(df_raw.iloc[i, 0]).strip()
-            if val == "1月":
+            # 兼容 "1月" 或 "1 月"
+            if val.replace(" ", "") == "1月":
                 start_row = i
                 break
 
         if start_row == -1:
             logger.error(f"在文件 {file_name} 中未找到 '1月' 开始的行")
+            print("Error: 未找到 '1月' 开始的行。请检查Excel第一列是否包含'1月'。")
             return None
+
+        print(f"定位到数据起始行: {start_row + 1}")
 
         # Process up to 12 months
         for i in range(start_row, start_row + 12):
@@ -396,6 +465,10 @@ def process_consolidated_file(file_path):
             month = str(row[0]).strip()
             if "月" not in month:
                 continue
+
+            # Debug log for first month to verify data
+            if "1月" in month:
+                print(f"正在读取 {month} 数据...")
 
             for energy_type, (cost_idx, usage_idx) in mapping.items():
                 cost = 0.0
@@ -411,6 +484,12 @@ def process_consolidated_file(file_path):
                         usage = float(usage_val) if not pd.isna(usage_val) else 0.0
                 except (ValueError, TypeError):
                     pass
+
+                # Debug print for verification
+                if "1月" in month and energy_type == "电":
+                    print(
+                        f"  [DEBUG] 1月电费: 读取值={cost}, 原始Excel行数据(index {cost_idx})={row[cost_idx]}"
+                    )
 
                 results.append(
                     {

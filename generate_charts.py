@@ -325,8 +325,11 @@ def generate_annual_pie_chart(
         labels = []
         log_parts = [f"===全年 {title_prefix} 汇总 ==="]
 
+        # 过滤掉 "全年合计" 行，避免重复计算
+        df_monthly = df[df["日期区间"] != "全年合计"]
+
         for col in cost_cols:
-            val = df[col].sum()
+            val = df_monthly[col].sum()
             # 仅包含总额大于 0 的项
             if val > 0 and col != total_col:
                 values.append(val)
@@ -336,8 +339,8 @@ def generate_annual_pie_chart(
                 # Log physical usage if available
                 usage_col = f"{energy_type}_用量"
                 usage_str = ""
-                if usage_col in df.columns:
-                    usage_val = df[usage_col].sum()
+                if usage_col in df_monthly.columns:
+                    usage_val = df_monthly[usage_col].sum()
                     usage_str = f" (用量: {usage_val})"
 
                 unit_fmt = ",.2f"  # All use 2 decimals now
@@ -457,7 +460,10 @@ def generate_cost_bar_chart(
 
         # Prepare data: Date Range as index, Columns as Energy Types
         rename_map = {col: col.replace("_费用(元)", "") for col in cost_cols}
-        plot_df = df.set_index("日期区间")[cost_cols].rename(columns=rename_map)
+
+        # 过滤掉 "全年合计" 行，避免比例失调
+        df_plot = df[df["日期区间"] != "全年合计"]
+        plot_df = df_plot.set_index("日期区间")[cost_cols].rename(columns=rename_map)
 
         # Filter out rows with 0 total cost
         plot_df = plot_df[plot_df.sum(axis=1) > 0]
@@ -582,7 +588,10 @@ def generate_coal_bar_chart(
 
         # Prepare data: Date Range as index, Columns as Energy Types
         rename_map = {col: col.replace("_标准煤(吨标准煤)", "") for col in coal_cols}
-        plot_df = df.set_index("日期区间")[coal_cols].rename(columns=rename_map)
+
+        # 过滤掉 "全年合计" 行，避免比例失调
+        df_plot = df[df["日期区间"] != "全年合计"]
+        plot_df = df_plot.set_index("日期区间")[coal_cols].rename(columns=rename_map)
 
         # Filter out rows with 0 total
         plot_df = plot_df[plot_df.sum(axis=1) > 0]
@@ -711,7 +720,12 @@ def generate_grouped_bar_chart(
 
         # Prepare data: Date Range as index, Columns as Energy Types
         rename_map = {col: col.replace("_费用(元)", "") for col in cost_cols}
-        full_plot_df = df.set_index("日期区间")[cost_cols].rename(columns=rename_map)
+
+        # 过滤掉 "全年合计" 行，避免比例失调
+        df_plot = df[df["日期区间"] != "全年合计"]
+        full_plot_df = df_plot.set_index("日期区间")[cost_cols].rename(
+            columns=rename_map
+        )
 
         # Remove rows with 0 total cost
         full_plot_df = full_plot_df[full_plot_df.sum(axis=1) > 0]
@@ -817,9 +831,11 @@ def generate_grouped_bar_chart(
             print(f"已生成分组柱状图: {output_path}")
 
         # 1. Generate Major Chart
+        # 主要能源包括：电、采暖用热，由于数值较大通常单独展示
         create_chart_for_columns(major_types, "major", "主要能源")
 
         # 2. Generate Minor Chart (All others)
+        # 其他能源包括：自来水、燃气、生活热水等，数值相对较小
         minor_types = [c for c in full_plot_df.columns if c not in major_types]
         create_chart_for_columns(minor_types, "minor", "其他能源")
 
