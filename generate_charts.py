@@ -126,7 +126,7 @@ def generate_pie_charts(
     参数:
         input_file: Excel 文件路径或包含汇总数据的 DataFrame。
         output_dir: 图表输出目录。
-        suffix: 匹配的列后缀 (例如 "_费用(元)" 或 "_标准煤(kgce)")。
+        suffix: 匹配的列后缀 (例如 "_费用(元)" 或 "_标准煤(kg标准煤)")。
         title_prefix: 标题前缀。
     """
     # Setup logging
@@ -172,7 +172,7 @@ def generate_pie_charts(
                     # Example: "电_费用(元)" -> "电"
                     energy_type = col.replace(suffix, "")
                     labels.append(energy_type)
-                    
+
                     # Log physical usage if available
                     usage_col = f"{energy_type}_用量"
                     usage_str = ""
@@ -233,8 +233,8 @@ def generate_pie_charts(
             unit = suffix.split("(_")[-1].strip(")") if "(" in suffix else "单位"
             if suffix == "_费用(元)":
                 unit = "元"
-            elif "kgce" in suffix:
-                unit = "kgce"
+            elif "标准煤" in suffix:
+                unit = "kg标准煤"
 
             # Create detailed legend labels
             legend_labels = [
@@ -370,8 +370,10 @@ def generate_annual_pie_chart(
         plt.title(f"全年{title_prefix}汇总", fontsize=28, pad=20)
         plt.axis("equal")
 
-        unit = "元" if suffix == "_费用(元)" else "kgce"
-        legend_labels = [f"{label}: {val:,.2f}{unit}" for label, val in zip(labels, values)]
+        unit = "元" if suffix == "_费用(元)" else "kg标准煤"
+        legend_labels = [
+            f"{label}: {val:,.2f}{unit}" for label, val in zip(labels, values)
+        ]
         plt.legend(
             wedges,
             legend_labels,
@@ -394,7 +396,9 @@ def generate_annual_pie_chart(
 
         plt.tight_layout(rect=(0, 0.1, 0.85, 0.95))
         file_prefix = "cost" if "费用" in title_prefix else "coal"
-        output_path = os.path.join(output_dir, f"{file_prefix}_distribution_annual_summary.png")
+        output_path = os.path.join(
+            output_dir, f"{file_prefix}_distribution_annual_summary.png"
+        )
         plt.savefig(output_path)
         plt.close()
 
