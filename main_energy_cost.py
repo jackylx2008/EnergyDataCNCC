@@ -75,12 +75,12 @@ def main():
             title_prefix="能源费用分布",
         )
 
-        # 生成标准煤(kg标准煤)分布饼图
+        # 生成标准煤(t标准煤)分布饼图
         generate_pie_charts(
             input_file=summary_df,
             output_dir=group_charts_dir,
-            suffix="_标准煤(kg标准煤)",
-            title_prefix="能源标准煤(kg标准煤)分布",
+            suffix="_标准煤(t标准煤)",
+            title_prefix="能源标准煤(t标准煤)分布",
         )
 
         generate_cost_bar_chart(input_file=summary_df, output_dir=group_charts_dir)

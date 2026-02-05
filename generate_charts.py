@@ -126,7 +126,7 @@ def generate_pie_charts(
     参数:
         input_file: Excel 文件路径或包含汇总数据的 DataFrame。
         output_dir: 图表输出目录。
-        suffix: 匹配的列后缀 (例如 "_费用(元)" 或 "_标准煤(kg标准煤)")。
+        suffix: 匹配的列后缀 (例如 "_费用(元)" 或 "_标准煤(t标准煤)")。
         title_prefix: 标题前缀。
     """
     # Setup logging
@@ -180,7 +180,7 @@ def generate_pie_charts(
                         usage_val = row[usage_col]
                         usage_str = f" (用量: {usage_val})"
 
-                    unit_fmt = ",.0f" if "标准煤" in suffix else ",.2f"
+                    unit_fmt = ",.2f"  # All use 2 decimals now
                     log_parts.append(f"{energy_type}: {val:{unit_fmt}}{usage_str}")
 
             if not values or sum(values) <= 0:
@@ -236,10 +236,10 @@ def generate_pie_charts(
             if suffix == "_费用(元)":
                 unit = "元"
             elif "标准煤" in suffix:
-                unit = "kg标准煤"
+                unit = "t标准煤"
 
             # Create detailed legend labels
-            val_fmt = ",.0f" if "标准煤" in suffix else ",.2f"
+            val_fmt = ",.2f"  # All use 2 decimals now (Cost and Tons)
             legend_labels = [
                 f"{label}: {val:{val_fmt}}{unit}" for label, val in zip(labels, values)
             ]
@@ -337,7 +337,7 @@ def generate_annual_pie_chart(
                     usage_val = df[usage_col].sum()
                     usage_str = f" (用量: {usage_val})"
 
-                unit_fmt = ",.0f" if "标准煤" in suffix else ",.2f"
+                unit_fmt = ",.2f"  # All use 2 decimals now
                 log_parts.append(f"{energy_type}: {val:{unit_fmt}}{usage_str}")
 
         if not values or sum(values) <= 0:
@@ -377,8 +377,8 @@ def generate_annual_pie_chart(
         plt.title(f"全年{title_prefix}汇总", fontsize=28, pad=20)
         plt.axis("equal")
 
-        unit = "元" if suffix == "_费用(元)" else "kg标准煤"
-        val_fmt = ",.0f" if "标准煤" in suffix else ",.2f"
+        unit = "元" if suffix == "_费用(元)" else "t标准煤"
+        val_fmt = ",.2f"  # All use 2 decimals now
         legend_labels = [
             f"{label}: {val:{val_fmt}}{unit}" for label, val in zip(labels, values)
         ]
