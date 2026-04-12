@@ -251,7 +251,7 @@ def save_summary(summary_data, output_dir, group_name, save_excel=True):
                         efficiency = round(
                             (row["总标准煤(吨标准煤)"] * 1000.0 / rev), 2
                         )
-                        pivot_df.at[idx, "万元营收标准煤耗(kg/万元营收)"] = efficiency
+                        pivot_df.loc[idx, "万元营收标准煤耗(kg/万元营收)"] = efficiency
 
             # 计算全年的指标
             total_rev = sum(revenue_data.values())
@@ -273,6 +273,44 @@ def save_summary(summary_data, output_dir, group_name, save_excel=True):
             pivot_df.loc[
                 pivot_df["日期区间"] == "全年合计", "万元营收标准煤耗(kg/万元营收)"
             ] = total_efficiency
+
+    # 4. 处理建筑面积能耗指标
+    total_area_config = config.get("total_area", {})
+    if total_area_config:
+        # 仅针对“全年合计”行计算单位面积指标
+        # 如果是字典，则取第一个区域作为主要参考，或者为每个区域创建列
+        # 为了保持表格简洁，我们为每个配置的区域增加两列
+        if isinstance(total_area_config, dict):
+            for area_name, area_val in total_area_config.items():
+                if area_val > 0:
+                    cost_col = f"{area_name}_单位面积费用(元/㎡)"
+                    coal_col = f"{area_name}_单位面积标煤(kg/㎡)"
+                    pivot_df[cost_col] = 0.0
+                    pivot_df[coal_col] = 0.0
+
+                    # 仅更新全年合计行
+                    mask = pivot_df["日期区间"] == "全年合计"
+                    if mask.any():
+                        total_cost = pivot_df.loc[mask, "总费用(元)"].values[0]
+                        total_coal = pivot_df.loc[mask, "总标准煤(吨标准煤)"].values[0]
+                        pivot_df.loc[mask, cost_col] = round(total_cost / area_val, 2)
+                        pivot_df.loc[mask, coal_col] = round(
+                            (total_coal * 1000.0) / area_val, 4
+                        )
+        elif isinstance(total_area_config, (int, float)) and total_area_config > 0:
+            pivot_df["单位面积费用(元/㎡)"] = 0.0
+            pivot_df["单位面积标煤(kg/㎡)"] = 0.0
+
+            mask = pivot_df["日期区间"] == "全年合计"
+            if mask.any():
+                total_cost = pivot_df.loc[mask, "总费用(元)"].values[0]
+                total_coal = pivot_df.loc[mask, "总标准煤(吨标准煤)"].values[0]
+                pivot_df.loc[mask, "单位面积费用(元/㎡)"] = round(
+                    total_cost / total_area_config, 2
+                )
+                pivot_df.loc[mask, "单位面积标煤(kg/㎡)"] = round(
+                    (total_coal * 1000.0) / total_area_config, 4
+                )
 
     output_path = None
     if save_excel:
@@ -411,15 +449,8 @@ def process_consolidated_file(file_path):
     file_name = os.path.basename(file_path)
     logger = logging.getLogger(__name__)
 
-    print(f"--- 正在处理文件: {file_path} ---")
-    if os.path.exists(file_path):
-        import time
-
-        mtime = os.path.getmtime(file_path)
-        print(f"文件修改时间: {time.ctime(mtime)}")
-    else:
+    if not os.path.exists(file_path):
         logger.error(f"文件不存在: {file_path}")
-        print(f"Error: 文件不存在: {file_path}")
         return None
 
     # 指向费用列索引 (0-based)
@@ -439,7 +470,6 @@ def process_consolidated_file(file_path):
     try:
         # Read without header first to find the starting row
         df_raw = pd.read_excel(file_path, sheet_name=0, header=None)
-        print(f"Excel 读取成功，共 {len(df_raw)} 行。")
 
         # 寻找 '1月' 所在的行
         start_row = -1
@@ -452,10 +482,7 @@ def process_consolidated_file(file_path):
 
         if start_row == -1:
             logger.error(f"在文件 {file_name} 中未找到 '1月' 开始的行")
-            print("Error: 未找到 '1月' 开始的行。请检查Excel第一列是否包含'1月'。")
             return None
-
-        print(f"定位到数据起始行: {start_row + 1}")
 
         # Process up to 12 months
         for i in range(start_row, start_row + 12):
@@ -466,10 +493,6 @@ def process_consolidated_file(file_path):
             month = str(row[0]).strip()
             if "月" not in month:
                 continue
-
-            # Debug log for first month to verify data
-            if "1月" in month:
-                print(f"正在读取 {month} 数据...")
 
             for energy_type, (cost_idx, usage_idx) in mapping.items():
                 cost = 0.0
@@ -485,12 +508,6 @@ def process_consolidated_file(file_path):
                         usage = float(usage_val) if not pd.isna(usage_val) else 0.0
                 except (ValueError, TypeError):
                     pass
-
-                # Debug print for verification
-                if "1月" in month and energy_type == "电":
-                    print(
-                        f"  [DEBUG] 1月电费: 读取值={cost}, 原始Excel行数据(index {cost_idx})={row[cost_idx]}"
-                    )
 
                 results.append(
                     {
@@ -521,7 +538,6 @@ def process_energy_cost_workflow(input_file, output_dir):
         logger.error(f"输入文件不存在: {input_file}")
         return {}
 
-    logger.info(f"[能耗费用流] 正在处理合并台账文件: {input_file}")
     df = process_consolidated_file(input_file)
 
     if df is not None:
@@ -607,6 +623,50 @@ def process_phase2_workflow(input_dir, output_dir):
 
     path, df_summary = save_summary(summary_data, output_dir, group_name)
     return {group_name: df_summary} if df_summary is not None else {}
+
+
+def process_multi_year_comparison(year_file_map, output_dir):
+    """
+    处理多年数据的对比分析。
+    """
+    logger = logging.getLogger(__name__)
+    combined_data = []
+
+    for year, file_path in year_file_map.items():
+        if not os.path.exists(file_path):
+            logger.warning(f"年份 {year} 的文件不存在，跳过: {file_path}")
+            continue
+
+        # 使用已有的 process_consolidated_file 处理每个合并台账
+        df = process_consolidated_file(file_path)
+        if df is not None:
+            df["年份"] = year  # 注入年份信息
+            combined_data.append(df)
+
+    if not combined_data:
+        logger.error("未找到任何可用于对比的有效数据。")
+        return None
+
+    # 合并所有年份的数据
+    full_df = pd.concat(combined_data, ignore_index=True)
+
+    # 统一计算标准煤消耗量（复用 config 里的折算系数）
+    config = load_config()
+    coal_factors = config.get("coal_conversion", {})
+
+    def calculate_coal(row):
+        energy_type = row["能源类型"]
+        factor = coal_factors.get(energy_type, 0)
+        return row["实际消耗"] * factor / 1000.0
+
+    full_df["标准煤(吨标准煤)"] = full_df.apply(calculate_coal, axis=1).round(4)
+
+    # 保存对比用的中间明细数据
+    comparison_excel = os.path.join(output_dir, "energy_comparison_details.xlsx")
+    full_df.to_excel(comparison_excel, index=False)
+    logger.info(f"年度对比明细已保存至: {comparison_excel}")
+
+    return full_df
 
 
 def process_excel_files():

@@ -13,8 +13,10 @@
 
 import logging
 import os
+import colorsys
 
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 import pandas as pd
 from matplotlib.patches import Patch
 from matplotlib.ticker import FuncFormatter
@@ -109,6 +111,21 @@ def get_color_sequence(labels):
             colors.append(default_colors[fallback_index % len(default_colors)])
             fallback_index += 1
     return colors
+
+
+def lighten_color(color, amount=0.5):
+    """
+    极简轻量化颜色。amount 越接近 1 则越淡。
+    """
+    try:
+        rgb = mcolors.to_rgb(color)
+        hls = colorsys.rgb_to_hls(*rgb)
+        # 增加亮度 (Lightness)
+        new_l = 1 - amount * (1 - hls[1])
+        new_rgb = colorsys.hls_to_rgb(hls[0], new_l, hls[2])
+        return mcolors.to_hex(new_rgb)
+    except:
+        return color
 
 
 def generate_pie_charts(
@@ -422,6 +439,118 @@ def generate_annual_pie_chart(
 
     except Exception as e:
         logger.error(f"生成全年汇总饼图失败: {e}", exc_info=True)
+
+
+def generate_energy_type_distribution_bar(
+    input_file: str | pd.DataFrame = "./output/energy_usage_summary.xlsx",
+    output_dir: str = "./output/charts",
+    suffix: str = "_费用(元)",
+    title_prefix: str = "各能源类型费用对比",
+):
+    """
+    生成能源类型分布柱状图。
+    X 轴为能源类型 (电, 采暖用热, 生活热水用热等)，Y 轴为数值 (费用或标准煤)。
+    展示的是全年的累计数值。
+    """
+    logger = setup_logger(log_level=logging.INFO, log_file="./logs/charts.log")
+
+    try:
+        if not isinstance(input_file, pd.DataFrame):
+            df = pd.read_excel(input_file)
+        else:
+            df = input_file
+
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        # 1. 提取数据 (优先使用 全年合计 行)
+        df_annual = df[df["日期区间"] == "全年合计"]
+        if df_annual.empty:
+            # 如果没有合计行，则手动汇总
+            df_monthly = df[df["日期区间"] != "全年合计"]
+            totals = df_monthly.sum(numeric_only=True)
+        else:
+            totals = df_annual.iloc[0]
+
+        # 2. 识别相关列
+        cost_cols = [
+            col for col in df.columns if col.endswith(suffix) and "总" not in col
+        ]
+
+        data = {}
+        for col in cost_cols:
+            val = totals[col]
+            if val > 0:
+                label = col.replace(suffix, "")
+                data[label] = val
+
+        if not data:
+            logger.warning(f"未找到后缀为 {suffix} 的有效数据，跳过柱状图。")
+            return
+
+        # 3. 排序以便展示 (按数值从大到小)
+        sorted_data = dict(sorted(data.items(), key=lambda item: item[1], reverse=True))
+        labels = list(sorted_data.keys())
+        values = list(sorted_data.values())
+
+        # 4. 绘图
+        plt.figure(figsize=(16, 12))
+        ax = plt.gca()
+
+        bar_colors = get_color_sequence(labels)
+        bars = ax.bar(labels, values, color=bar_colors, alpha=0.9, width=0.6)
+
+        plt.title(f"全年{title_prefix}", fontsize=30, pad=30, fontweight="bold")
+
+        # 处理 Y 轴单位
+        unit = "元"
+        use_wan_yuan = False
+        if suffix == "_费用(元)":
+            unit = "元"
+            if max(values) > 50000:
+                use_wan_yuan = True
+                unit = "万元"
+        elif "标准煤" in suffix:
+            unit = "吨标准煤"
+
+        if use_wan_yuan:
+            ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{x/10000:.1f}"))
+            plt.ylabel(f"费用 ({unit})", fontsize=24, labelpad=15)
+        else:
+            ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{x:,.0f}"))
+            plt.ylabel(f"数值 ({unit})", fontsize=24, labelpad=15)
+
+        plt.xticks(fontsize=22)
+        plt.yticks(fontsize=20)
+
+        # 添加数值标签
+        for bar in bars:
+            height = bar.get_height()
+            label_val = f"{height/10000:,.1f}" if use_wan_yuan else f"{height:,.0f}"
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                height,
+                label_val,
+                ha="center",
+                va="bottom",
+                fontsize=18,
+                fontweight="bold",
+            )
+
+        plt.grid(axis="y", linestyle="--", alpha=0.7)
+        plt.tight_layout()
+
+        # 保存
+        file_prefix = "cost_type" if "费用" in title_prefix else "coal_type"
+        output_path = os.path.join(output_dir, f"{file_prefix}_bar_annual.png")
+        plt.savefig(output_path)
+        plt.close()
+
+        logger.info(f"已生成能源类型分布柱状图: {output_path}")
+        print(f"已生成能源类型分布柱状图: {output_path}")
+
+    except Exception as e:
+        logger.error(f"生成能源类型柱状图失败: {e}", exc_info=True)
 
 
 def generate_cost_bar_chart(
@@ -841,6 +970,365 @@ def generate_grouped_bar_chart(
 
     except Exception as e:
         logger.error(f"生成分组柱状图失败: {e}", exc_info=True)
+
+
+def generate_comparison_bar_chart(
+    df: pd.DataFrame,
+    output_dir: str,
+    value_col: str = "费用(元)",
+    title: str = "年度能源对比分析",
+    ylabel: str = "数值",
+    filename: str = "year_comparison.png",
+    use_wan_yuan: bool = False,
+):
+    """
+    生成年度同比对比柱状图。
+    X 轴为月份，不同年份为并列柱子。
+    """
+    logger = setup_logger(log_level=logging.INFO, log_file="./logs/charts.log")
+    if df is None or df.empty:
+        return
+
+    try:
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        # 1. 数据准备：按 月份 和 年份 分组汇总
+        # 确保月份排序正确（1月, 2月...）
+        def get_month_num(m_str):
+            import re
+
+            match = re.search(r"(\d+)", str(m_str))
+            return int(match.group(1)) if match else 999
+
+        # 过滤掉“全年合计”或“总计”
+        plot_df_raw = df[~df["日期区间"].str.contains("合计|总计", na=False)].copy()
+        plot_df_raw["_month_num"] = plot_df_raw["日期区间"].apply(get_month_num)
+
+        # Pivot: Index=日期区间, Columns=年份
+        pivot_df = plot_df_raw.pivot_table(
+            index=["_month_num", "日期区间"],
+            columns="年份",
+            values=value_col,
+            aggfunc="sum",
+        )
+        # 只保留日期区间作为索引
+        pivot_df.index = pivot_df.index.get_level_values("日期区间")
+
+        if pivot_df.empty:
+            logger.warning(f"对比图表 {filename} 无有效数据。")
+            return
+
+        # 2. 绘图
+        plt.figure(figsize=(20, 12))
+        ax = plt.gca()
+
+        # 使用内置配色或循环色
+        pivot_df.plot(kind="bar", ax=ax, width=0.8, alpha=0.9, rot=0)
+
+        # 调整颜色：新一年用原色，老一年用淡色
+        # 既然是总量对比图，我们使用主色调 (默认取'电'的颜色，若无则取列表第一个)
+        base_theme_color = ENERGY_COLOR_MAP.get(
+            "电", list(ENERGY_COLOR_MAP.values())[0]
+        )
+        years = sorted(pivot_df.columns.tolist())
+        max_year = max(years)
+
+        for i, container in enumerate(ax.containers):
+            current_year = years[i]
+            is_newest = current_year == max_year
+            color = (
+                base_theme_color
+                if is_newest
+                else lighten_color(base_theme_color, amount=0.5)
+            )
+            for bar in container:
+                bar.set_facecolor(color)
+
+        plt.title(title, fontsize=30, pad=30, fontweight="bold")
+        plt.xlabel("月份", fontsize=24, labelpad=15)
+        plt.ylabel(ylabel, fontsize=24, labelpad=15)
+
+        if use_wan_yuan:
+            ax.yaxis.set_major_formatter(
+                FuncFormatter(lambda value, _: f"{value / 10000:.1f}")
+            )
+            plt.ylabel(f"{ylabel} (万元)", fontsize=24, labelpad=15)
+        else:
+            ax.yaxis.set_major_formatter(
+                FuncFormatter(lambda value, _: f"{value:,.0f}")
+            )
+
+        plt.xticks(fontsize=20)
+        plt.yticks(fontsize=20)
+
+        # Legend
+        plt.legend(
+            title="年份",
+            fontsize=20,
+            title_fontsize=22,
+            loc="upper left",
+            bbox_to_anchor=(1.01, 1),
+        )
+
+        # Add labels
+        for c in ax.containers:
+            labels = []
+            for v in c:
+                height = v.get_height()
+                if height > 0:
+                    if use_wan_yuan:
+                        labels.append(f"{height / 10000:,.1f}")
+                    else:
+                        labels.append(f"{height:,.0f}")
+                else:
+                    labels.append("")
+            ax.bar_label(
+                c,  # type: ignore
+                labels=labels,
+                padding=3,
+                fontsize=16,
+                rotation=45,
+            )
+
+        plt.tight_layout()
+        output_path = os.path.join(output_dir, filename)
+        plt.savefig(output_path)
+        plt.close()
+
+        logger.info(f"已生成对比分析图: {output_path}")
+        print(f"已生成对比分析图: {output_path}")
+
+    except Exception as e:
+        logger.error(f"生成对比图表 {filename} 失败: {e}", exc_info=True)
+
+
+def generate_multi_energy_comparison_bar(
+    df: pd.DataFrame,
+    output_dir: str,
+    value_col: str = "费用(元)",
+    title: str = "年度能源费用同比分析",
+    ylabel: str = "数值",
+    filename: str = "comparison_all_energies.png",
+    use_wan_yuan: bool = False,
+):
+    """
+    生成多能源类型对比柱状图。
+    X 轴为能源类型，不同年份为并列柱子。
+    """
+    logger = setup_logger(log_level=logging.INFO, log_file="./logs/charts.log")
+    if df is None or df.empty:
+        return
+
+    try:
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        # 1. 数据准备
+        plot_df_raw = df[~df["日期区间"].str.contains("合计|总计", na=False)].copy()
+
+        # Pivot: Index=能源类型, Columns=年份
+        pivot_df = plot_df_raw.pivot_table(
+            index="能源类型",
+            columns="年份",
+            values=value_col,
+            aggfunc="sum",
+        )
+
+        if pivot_df.empty:
+            logger.warning(f"对比图表 {filename} 无有效数据。")
+            return
+
+        # 2. 绘图
+        plt.figure(figsize=(20, 12))
+        ax = plt.gca()
+
+        # 绘制柱状图
+        pivot_df.plot(kind="bar", ax=ax, width=0.8, alpha=0.9, rot=0)
+
+        # 按照用户需求调整颜色：新一年用原色，老一年用淡色
+        years = sorted(pivot_df.columns.tolist())
+        energy_types = pivot_df.index.tolist()
+        max_year = max(years)
+
+        for i, container in enumerate(ax.containers):
+            # 每个 container 对应一个年份 (Series)
+            current_year = years[i]
+            is_newest = current_year == max_year
+
+            for j, bar in enumerate(container):
+                # 每个 bar 对应一个能源类型
+                etype = energy_types[j]
+                base_color = ENERGY_COLOR_MAP.get(etype, "#999999")
+
+                if is_newest:
+                    bar.set_facecolor(base_color)
+                else:
+                    # 老年份使用淡化色
+                    bar.set_facecolor(lighten_color(base_color, amount=0.5))
+
+        # 标题中加入月份说明
+        months_list = df["日期区间"].unique()
+        months_text = ",".join(months_list)
+        plt.title(f"{title}\n({months_text})", fontsize=30, pad=35, fontweight="bold")
+
+        plt.xlabel("能源类型", fontsize=24, labelpad=15)
+
+        if use_wan_yuan:
+            ax.yaxis.set_major_formatter(
+                FuncFormatter(lambda value, _: f"{value / 10000:.1f}")
+            )
+            plt.ylabel(f"{ylabel} (万元)", fontsize=24, labelpad=15)
+        else:
+            ax.yaxis.set_major_formatter(
+                FuncFormatter(lambda value, _: f"{value:,.0f}")
+            )
+            plt.ylabel(ylabel, fontsize=24, labelpad=15)
+
+        plt.xticks(fontsize=22)
+        plt.yticks(fontsize=20)
+        plt.legend(title="年份", fontsize=20, title_fontsize=22)
+
+        # 添加标签
+        for c in ax.containers:
+            labels = []
+            for v in c:
+                height = v.get_height()
+                if height > 0:
+                    label_text = (
+                        f"{height / 10000:,.1f}" if use_wan_yuan else f"{height:,.0f}"
+                    )
+                    labels.append(label_text)
+                else:
+                    labels.append("")
+            ax.bar_label(c, labels=labels, padding=3, fontsize=18, fontweight="bold")
+
+        plt.grid(axis="y", linestyle="--", alpha=0.7)
+        plt.tight_layout()
+
+        output_path = os.path.join(output_dir, filename)
+        plt.savefig(output_path)
+        plt.close()
+        logger.info(f"已生成多能源汇总对比图: {output_path}")
+
+    except Exception as e:
+        logger.error(f"生成多能源对比图失败: {e}", exc_info=True)
+
+
+def generate_comparison_pie_charts(
+    df: pd.DataFrame,
+    output_dir: str,
+    value_col: str = "费用(元)",
+    title_prefix: str = "能源费用分布同比",
+    filename: str = "comparison_pie_distribution.png",
+):
+    """
+    在一个图片中生成不同年份的对比饼图（并排显示）。
+    底部注明总量。
+    """
+    logger = setup_logger(log_level=logging.INFO, log_file="./logs/charts.log")
+    if df is None or df.empty:
+        return
+
+    try:
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        # 1. 数据准备
+        plot_df_raw = df[~df["日期区间"].str.contains("合计|总计", na=False)].copy()
+        years = sorted(plot_df_raw["年份"].unique())
+
+        if not years:
+            return
+
+        # 获取所有能源类型用于统一图例
+        all_labels = sorted(plot_df_raw["能源类型"].unique())
+
+        # 2. 绘图设置
+        fig, axes = plt.subplots(1, len(years), figsize=(12 * len(years), 10))
+        if len(years) == 1:
+            axes = [axes]
+
+        unit = "元"
+        if value_col == "标准煤(吨标准煤)":
+            unit = "吨标煤"
+
+        for i, year in enumerate(years):
+            ax = axes[i]
+            year_df = plot_df_raw[plot_df_raw["年份"] == year]
+
+            # 汇总该年份各能源类型数据
+            year_data = year_df.groupby("能源类型")[value_col].sum()
+            year_data = year_data[year_data > 0]
+
+            labels = year_data.index.tolist()
+            values = year_data.values.tolist()
+            total_val = sum(values)
+
+            if not values:
+                ax.text(0.5, 0.5, f"{year}年 无数据", ha="center")
+                ax.axis("off")
+                continue
+
+            # 使用全局颜色映射
+            colors = [ENERGY_COLOR_MAP.get(l, "#999999") for l in labels]
+
+            wedges, texts, autotexts = ax.pie(
+                values,
+                labels=None,
+                autopct=lambda p: f"{p:.1f}%" if p >= 2 else "",
+                startangle=140,
+                colors=colors,
+                pctdistance=0.8,
+                textprops={"fontsize": 16, "fontweight": "bold"},
+            )
+
+            ax.set_title(f"{year}年", fontsize=26, fontweight="bold", pad=10)
+
+            # 底部标注总量
+            val_str = (
+                f"{total_val/10000:.2f} 万元"
+                if "费用" in value_col and total_val > 10000
+                else f"{total_val:,.2f} {unit}"
+            )
+            ax.text(
+                0.5,
+                -0.1,
+                f"总量: {val_str}",
+                transform=ax.transAxes,
+                ha="center",
+                fontsize=22,
+                fontweight="bold",
+            )
+
+        # 3. 统一图例
+        legend_elements = [
+            Patch(facecolor=ENERGY_COLOR_MAP.get(l, "#999999"), label=l)
+            for l in all_labels
+        ]
+        fig.legend(
+            handles=legend_elements,
+            title="能源类型",
+            loc="center right",
+            fontsize=16,
+            title_fontsize=18,
+        )
+
+        # 标题中加入月份说明
+        months_text = ",".join(df["日期区间"].unique())
+        fig.suptitle(
+            f"{title_prefix} ({months_text})", fontsize=30, fontweight="bold", y=0.98
+        )
+
+        plt.subplots_adjust(right=0.85, bottom=0.15, top=0.85)
+
+        output_path = os.path.join(output_dir, filename)
+        plt.savefig(output_path)
+        plt.close()
+        logger.info(f"已生成同比饼图: {output_path}")
+
+    except Exception as e:
+        logger.error(f"生成同比饼图失败: {e}", exc_info=True)
 
 
 if __name__ == "__main__":

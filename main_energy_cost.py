@@ -19,6 +19,7 @@ from generate_charts import (
     generate_cost_bar_chart,
     generate_coal_bar_chart,
     generate_grouped_bar_chart,
+    generate_energy_type_distribution_bar,
 )
 
 
@@ -33,10 +34,6 @@ def main():
     # input_dir = config["paths"]["input_dir"] # Deprecated
     input_file = config["paths"]["input_file"]  # New Input File
     output_dir = config["paths"]["output_dir"]
-
-    print(f"配置文件已加载。")
-    print(f"输入文件路径: {input_file}")
-    print(f"输出目录: {output_dir}")
 
     # 清空输出目录
     if os.path.exists(output_dir):
@@ -92,6 +89,21 @@ def main():
         generate_coal_bar_chart(input_file=summary_df, output_dir=group_charts_dir)
         generate_grouped_bar_chart(input_file=summary_df, output_dir=group_charts_dir)
 
+        # 生成能源类型费用对比柱状图 (X轴为能源类型)
+        generate_energy_type_distribution_bar(
+            input_file=summary_df,
+            output_dir=group_charts_dir,
+            suffix="_费用(元)",
+            title_prefix="各能源类型费用对比",
+        )
+        # 生成能源类型标准煤对比柱状图 (X轴为能源类型)
+        generate_energy_type_distribution_bar(
+            input_file=summary_df,
+            output_dir=group_charts_dir,
+            suffix="_标准煤(吨标准煤)",
+            title_prefix="各能源类型标准煤对比",
+        )
+
         logger.info(f"分组 [{group_name}] 图表生成完成。")
         print(f"图表已保存至: {group_charts_dir}")
 
@@ -110,6 +122,32 @@ def main():
                 print(f"\n>>> [{group_name}] 全年关键指标摘要:")
                 print(f"    - 全年总标准煤量: {total_coal:.2f} 吨")
                 print(f"    - 万元营收标准煤耗: {efficiency:.2f} kg/万元")
+
+                # 计算单位面积指标
+                total_area_config = config.get("total_area", {})
+                if total_area_config:
+                    total_cost = annual_row["总费用(元)"].values[0]
+                    print(f"    - 单位面积能耗指标:")
+                    if isinstance(total_area_config, dict):
+                        for area_name, area_val in total_area_config.items():
+                            if area_val > 0:
+                                cost_per_sqm = total_cost / area_val
+                                coal_per_sqm = (total_coal * 1000.0) / area_val
+                                print(f"      * {area_name} ({area_val} ㎡):")
+                                print(
+                                    f"        - 单位面积费用: {cost_per_sqm:.2f} 元/㎡"
+                                )
+                                print(
+                                    f"        - 单位面积标煤: {coal_per_sqm:.4f} kg/㎡"
+                                )
+                    elif (
+                        isinstance(total_area_config, (int, float))
+                        and total_area_config > 0
+                    ):
+                        cost_per_sqm = total_cost / total_area_config
+                        coal_per_sqm = (total_coal * 1000.0) / total_area_config
+                        print(f"      - 单位面积费用: {cost_per_sqm:.2f} 元/㎡")
+                        print(f"      - 单位面积标煤: {coal_per_sqm:.4f} kg/㎡")
 
     print("\n" + "=" * 50)
     print("能耗费用数据处理工作流执行完成！")
