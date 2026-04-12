@@ -127,7 +127,7 @@ def main():
                 total_area_config = config.get("total_area", {})
                 if total_area_config:
                     total_cost = annual_row["总费用(元)"].values[0]
-                    print(f"    - 单位面积能耗指标:")
+                    print("    - 单位面积能耗指标:")
                     if isinstance(total_area_config, dict):
                         for area_name, area_val in total_area_config.items():
                             if area_val > 0:
