@@ -6,11 +6,7 @@
 
 import logging
 import os
-import sys
 from typing import Optional
-
-# 动态添加项目根目录到 sys.path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 
 def setup_logger(
@@ -28,6 +24,8 @@ def setup_logger(
     """
     # 如果未显式指定日志文件，则按“一个脚本一个日志”规则自动生成
     if log_file is None:
+        import sys
+
         main_module = os.path.splitext(os.path.basename(sys.argv[0]))[0] or "app"
         log_file = os.path.join(".", "logs", f"{main_module}.log")
 

@@ -24,13 +24,19 @@ EnergyDataCNCC/
 │   └── charts_能耗费用/    # 生成的图片文件
 ├── data/                   # 缓存目录：存放 Parquet 缓存文件
 ├── logs/                   # 日志目录
-├── config.yaml             # 配置文件
-├── main_energy_cost.py      # 主程序入口 (能耗费用工作流)
-├── process_energy_data.py  # 数据处理核心逻辑
-├── energy_models.py        # 数据模型与清洗逻辑
-├── generate_charts.py      # 图表生成模块
-├── logging_config.py       # 日志配置
-├── inspect_excel.py        # 调试工具：检查 Excel 结构
+├── config.yaml             # 静态规则配置
+├── common.b25b26.env       # B25B26 环境配置（已忽略）
+├── common.b23.env          # B23 环境配置（已忽略）
+├── main_energy_cost.py     # 主程序入口 (能耗费用工作流)
+├── main_energy_comparison.py # 主程序入口 (年度同比工作流)
+├── core/                   # 核心业务模块
+│   ├── process_energy_data.py
+│   ├── energy_models.py
+│   ├── generate_charts.py
+│   └── logging_config.py
+├── tools/                  # 调试/辅助脚本
+│   ├── inspect_excel.py
+│   └── consolidate_energy_data.py
 └── README.md               # 项目说明文档
 ```
 
@@ -52,7 +58,7 @@ pip install pandas matplotlib openpyxl pyarrow pyyaml
 ## 快速开始
 
 1. **准备数据**: 将能源结算 Excel 文件放入 `input/` 目录。
-2. **配置**: 检查 `config.yaml` 中的路径配置（通常默认即可）。
+2. **配置**: 在 `config.yaml` 的 `runtime.profile` 中选择 `B25B26` 或 `B23`，并分别在对应的 `.env` 文件中填写本地值。
 3. **运行**:
 
    ```bash
@@ -65,14 +71,14 @@ pip install pandas matplotlib openpyxl pyarrow pyyaml
 
 ## 详细说明
 
-### 1. 数据处理 (`process_energy_data.py`)
+### 1. 数据处理 (`core/process_energy_data.py`)
 
 读取 `input` 目录下的所有 `.xlsx` 文件。针对每个 Sheet（代表一个日期区间），使用 `EnergySheet` 类进行清洗（如处理合并单元格填充）。处理后的数据会与 `data` 目录下的缓存进行比对，确保数据一致性。
 
-### 2. 图表生成 (`generate_charts.py`)
+### 2. 图表生成 (`core/generate_charts.py`)
 
 读取生成的汇总 Excel，使用 Matplotlib 绘制图表。已配置 `SimHei` 和 `Microsoft YaHei` 字体以支持中文显示。
 
-### 3. 调试 (`inspect_excel.py`)
+### 3. 调试 (`tools/inspect_excel.py`)
 
 如果遇到新的 Excel 格式，可以使用此脚本快速查看文件结构和列名，以便调整代码。

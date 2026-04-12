@@ -18,9 +18,9 @@
 import logging
 import os
 import shutil
-from logging_config import setup_logger
-from process_energy_data import load_config, process_multi_year_comparison
-from generate_charts import (
+from core.logging_config import setup_logger
+from core.process_energy_data import load_config, process_multi_year_comparison
+from core.generate_charts import (
     generate_multi_energy_comparison_bar,
     generate_comparison_pie_charts,
 )

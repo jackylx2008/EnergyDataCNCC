@@ -12,9 +12,9 @@ import logging
 import os
 import shutil
 import time
-from logging_config import setup_logger
-from process_energy_data import load_config, process_energy_cost_workflow
-from generate_charts import (
+from core.logging_config import setup_logger
+from core.process_energy_data import load_config, process_energy_cost_workflow
+from core.generate_charts import (
     generate_pie_charts,
     generate_cost_bar_chart,
     generate_coal_bar_chart,
@@ -148,6 +148,14 @@ def main():
                         coal_per_sqm = (total_coal * 1000.0) / total_area_config
                         print(f"      - 单位面积费用: {cost_per_sqm:.2f} 元/㎡")
                         print(f"      - 单位面积标煤: {coal_per_sqm:.4f} kg/㎡")
+            else:
+                logger.info(
+                    "分组 [%s] 未满足完整全年统计条件，已跳过全年统计。", group_name
+                )
+                print(
+                    f">>> [{group_name}] 未满足完整全年统计条件"
+                    "（存在缺失月份或某月整行数据为0），已跳过全年统计。"
+                )
 
     print("\n" + "=" * 50)
     print("能耗费用数据处理工作流执行完成！")

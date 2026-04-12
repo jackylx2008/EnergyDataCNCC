@@ -1,3 +1,8 @@
+import os
+from pathlib import Path
+
+import pandas as pd
+
 """
 Excel 文件检查工具
 ================
@@ -11,10 +16,8 @@ Excel 文件检查工具
 3. 读取第一个 Sheet 的前几行数据并打印，用于检查数据清洗前的原始状态。
 """
 
-import pandas as pd
-import os
-
-input_dir = "./input"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+input_dir = PROJECT_ROOT / "input"
 files = [
     f for f in os.listdir(input_dir) if f.endswith(".xlsx") and not f.startswith("~$")
 ]

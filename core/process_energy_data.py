@@ -18,8 +18,40 @@ import yaml
 import re
 import pandas as pd
 import logging
-from logging_config import setup_logger
-from energy_models import EnergySheet
+from core.logging_config import setup_logger
+from core.energy_models import EnergySheet
+
+
+def _extract_month_number(label):
+    """Extract month number from labels like '1月'."""
+    match = re.search(r"(\d+)", str(label))
+    return int(match.group(1)) if match else None
+
+
+def _has_complete_year_summary(summary_df):
+    """
+    Return True only when:
+    1. Months 1-12 all exist.
+    2. Every monthly row has non-zero numeric data.
+    """
+    if summary_df is None or summary_df.empty or "日期区间" not in summary_df.columns:
+        return False
+
+    monthly_df = summary_df.copy()
+    monthly_df["_month_num"] = monthly_df["日期区间"].apply(_extract_month_number)
+    monthly_df = monthly_df[monthly_df["_month_num"].between(1, 12, inclusive="both")]
+
+    month_set = set(monthly_df["_month_num"].tolist())
+    if month_set != set(range(1, 13)):
+        return False
+
+    numeric_cols = monthly_df.select_dtypes(include="number").columns.tolist()
+    numeric_cols = [col for col in numeric_cols if col != "_month_num"]
+    if not numeric_cols:
+        return False
+
+    monthly_totals = monthly_df[numeric_cols].sum(axis=1)
+    return bool((monthly_totals > 0).all())
 
 
 def process_ledger_file(file_path):
@@ -97,6 +129,67 @@ def process_ledger_file(file_path):
         return None
 
 
+def _parse_env_file(env_path="common.env"):
+    """Parse a minimal .env-style file into a dict."""
+    env_values = {}
+    if not os.path.exists(env_path):
+        return env_values
+
+    with open(env_path, "r", encoding="utf-8") as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+
+            if (
+                len(value) >= 2
+                and value[0] == value[-1]
+                and value[0] in {'"', "'"}
+            ):
+                value = value[1:-1]
+
+            env_values[key] = value
+
+    return env_values
+
+
+def _resolve_env_placeholders(value, env_values):
+    """Recursively resolve ${ENV_NAME} placeholders in loaded YAML values."""
+    if isinstance(value, dict):
+        return {
+            key: _resolve_env_placeholders(item, env_values)
+            for key, item in value.items()
+        }
+
+    if isinstance(value, list):
+        return [_resolve_env_placeholders(item, env_values) for item in value]
+
+    if not isinstance(value, str):
+        return value
+
+    pattern = r"^\$\{([A-Z0-9_]+)\}$"
+    match = re.match(pattern, value)
+    if not match:
+        return value
+
+    env_key = match.group(1)
+    if env_key not in env_values:
+        logging.getLogger(__name__).warning(
+            "环境变量 %s 未设置，保留原占位符。", env_key
+        )
+        return value
+
+    raw_env_value = env_values[env_key]
+    try:
+        return yaml.safe_load(raw_env_value)
+    except yaml.YAMLError:
+        return raw_env_value
+
+
 def load_config(config_path="config.yaml"):
     """
     加载 YAML 配置文件。
@@ -108,7 +201,18 @@ def load_config(config_path="config.yaml"):
         dict: 包含配置信息的字典。
     """
     with open(config_path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        config = yaml.safe_load(f) or {}
+
+    runtime_config = config.get("runtime", {})
+    profile = runtime_config.get("profile", "B25B26")
+    env_files = runtime_config.get("env_files", {})
+    env_path = env_files.get(profile, "common.b25b26.env")
+
+    env_values = _parse_env_file(env_path)
+    if not env_values:
+        return config
+
+    return _resolve_env_placeholders(config, env_values)
 
 
 def save_summary(summary_data, output_dir, group_name, save_excel=True):
@@ -216,10 +320,16 @@ def save_summary(summary_data, output_dir, group_name, save_excel=True):
     coal_cols = [col for col in pivot_df.columns if col.endswith("_标准煤(吨标准煤)")]
     pivot_df["总标准煤(吨标准煤)"] = pivot_df[coal_cols].sum(axis=1)
 
-    # 1. 添加 "全年合计" 行
-    totals = pivot_df.sum(numeric_only=True)
-    totals["日期区间"] = "全年合计"
-    pivot_df = pd.concat([pivot_df, pd.DataFrame([totals])], ignore_index=True)
+    has_full_year_data = _has_complete_year_summary(pivot_df)
+    if has_full_year_data:
+        totals = pivot_df.sum(numeric_only=True)
+        totals["日期区间"] = "全年合计"
+        pivot_df = pd.concat([pivot_df, pd.DataFrame([totals])], ignore_index=True)
+    else:
+        logger.warning(
+            "分组 %s 未满足完整全年统计条件（存在缺失月份或某月整行数据为0），跳过全年合计统计。",
+            group_name,
+        )
 
     # 2. 提取年份以获取经营收入
     year = 2025  # 默认 2025
@@ -254,29 +364,33 @@ def save_summary(summary_data, output_dir, group_name, save_excel=True):
                         pivot_df.loc[idx, "万元营收标准煤耗(kg/万元营收)"] = efficiency
 
             # 计算全年的指标
-            total_rev = sum(revenue_data.values())
-            if total_rev > 0:
-                total_coal = pivot_df.loc[
-                    pivot_df["日期区间"] == "全年合计", "总标准煤(吨标准煤)"
-                ].values[0]
-                total_efficiency = round((total_coal * 1000.0 / total_rev), 2)
-                pivot_df.loc[
-                    pivot_df["日期区间"] == "全年合计", "万元营收标准煤耗(kg/万元营收)"
-                ] = total_efficiency
+            if has_full_year_data:
+                total_rev = sum(revenue_data.values())
+                if total_rev > 0:
+                    total_coal = pivot_df.loc[
+                        pivot_df["日期区间"] == "全年合计", "总标准煤(吨标准煤)"
+                    ].values[0]
+                    total_efficiency = round((total_coal * 1000.0 / total_rev), 2)
+                    pivot_df.loc[
+                        pivot_df["日期区间"] == "全年合计",
+                        "万元营收标准煤耗(kg/万元营收)",
+                    ] = total_efficiency
 
         elif isinstance(revenue_data, (int, float)) and revenue_data > 0:
             # 仅有年度总收入数据，仅计算全年合计行的指标
-            total_coal = pivot_df.loc[
-                pivot_df["日期区间"] == "全年合计", "总标准煤(吨标准煤)"
-            ].values[0]
-            total_efficiency = round((total_coal * 1000.0 / revenue_data), 2)
-            pivot_df.loc[
-                pivot_df["日期区间"] == "全年合计", "万元营收标准煤耗(kg/万元营收)"
-            ] = total_efficiency
+            if has_full_year_data:
+                total_coal = pivot_df.loc[
+                    pivot_df["日期区间"] == "全年合计", "总标准煤(吨标准煤)"
+                ].values[0]
+                total_efficiency = round((total_coal * 1000.0 / revenue_data), 2)
+                pivot_df.loc[
+                    pivot_df["日期区间"] == "全年合计",
+                    "万元营收标准煤耗(kg/万元营收)",
+                ] = total_efficiency
 
     # 4. 处理建筑面积能耗指标
     total_area_config = config.get("total_area", {})
-    if total_area_config:
+    if total_area_config and has_full_year_data:
         # 仅针对“全年合计”行计算单位面积指标
         # 如果是字典，则取第一个区域作为主要参考，或者为每个区域创建列
         # 为了保持表格简洁，我们为每个配置的区域增加两列

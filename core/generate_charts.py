@@ -26,12 +26,16 @@ try:
 except ImportError:  # pragma: no cover - PyYAML optional
     yaml = None
 
-from logging_config import setup_logger
+from core.logging_config import setup_logger
 
 # Setup general chart module logger
-CHART_LOGGER = setup_logger(
-    log_level=logging.INFO, log_file="./logs/charts.log", filemode="a"
-)
+try:
+    CHART_LOGGER = setup_logger(
+        log_level=logging.INFO, log_file="./logs/charts.log", filemode="a"
+    )
+except OSError:
+    CHART_LOGGER = logging.getLogger(__name__)
+    CHART_LOGGER.setLevel(logging.INFO)
 
 # Setup a dedicated logger for energy data details
 # We manually add a handler to avoid clearing root handlers via setup_logger
@@ -40,11 +44,14 @@ DATA_LOGGER.setLevel(logging.INFO)
 DATA_LOGGER.propagate = (
     False  # Don't send to root logger to avoid duplication in charts.log
 )
-_data_handler = logging.FileHandler(
-    "./logs/energy_data_details.log", mode="a", encoding="utf-8"
-)
-_data_handler.setFormatter(logging.Formatter("%(asctime)s - %(message)s"))
-DATA_LOGGER.addHandler(_data_handler)
+try:
+    _data_handler = logging.FileHandler(
+        "./logs/energy_data_details.log", mode="a", encoding="utf-8"
+    )
+    _data_handler.setFormatter(logging.Formatter("%(asctime)s - %(message)s"))
+    DATA_LOGGER.addHandler(_data_handler)
+except OSError:
+    pass
 
 # Configure Chinese font support for Matplotlib
 plt.rcParams["font.sans-serif"] = [
@@ -335,18 +342,25 @@ def generate_annual_pie_chart(
         else:
             df = input_file
 
+        if "日期区间" not in df.columns:
+            logger.warning("缺少 日期区间 列，跳过全年汇总饼图。")
+            return
+
+        annual_row = df[df["日期区间"] == "全年合计"]
+        if annual_row.empty:
+            logger.info("缺少全年合计行，跳过全年汇总饼图。")
+            return
+
         cost_cols = [col for col in df.columns if col.endswith(suffix)]
         total_col = "总费用(元)" if suffix == "_费用(元)" else f"总{suffix.lstrip('_')}"
 
         values = []
         labels = []
         log_parts = [f"===全年 {title_prefix} 汇总 ==="]
-
-        # 过滤掉 "全年合计" 行，避免重复计算
-        df_monthly = df[df["日期区间"] != "全年合计"]
+        annual_data = annual_row.iloc[0]
 
         for col in cost_cols:
-            val = df_monthly[col].sum()
+            val = annual_data[col]
             # 仅包含总额大于 0 的项
             if val > 0 and col != total_col:
                 values.append(val)
@@ -356,8 +370,8 @@ def generate_annual_pie_chart(
                 # Log physical usage if available
                 usage_col = f"{energy_type}_用量"
                 usage_str = ""
-                if usage_col in df_monthly.columns:
-                    usage_val = df_monthly[usage_col].sum()
+                if usage_col in df.columns:
+                    usage_val = annual_data.get(usage_col, 0)
                     usage_str = f" (用量: {usage_val})"
 
                 unit_fmt = ",.2f"  # All use 2 decimals now
@@ -463,14 +477,12 @@ def generate_energy_type_distribution_bar(
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
-        # 1. 提取数据 (优先使用 全年合计 行)
         df_annual = df[df["日期区间"] == "全年合计"]
         if df_annual.empty:
-            # 如果没有合计行，则手动汇总
-            df_monthly = df[df["日期区间"] != "全年合计"]
-            totals = df_monthly.sum(numeric_only=True)
-        else:
-            totals = df_annual.iloc[0]
+            logger.info("缺少全年合计行，跳过全年能源类型分布柱状图。")
+            return
+
+        totals = df_annual.iloc[0]
 
         # 2. 识别相关列
         cost_cols = [

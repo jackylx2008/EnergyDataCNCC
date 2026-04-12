@@ -1,4 +1,6 @@
 import os
+from pathlib import Path
+
 import pandas as pd
 import numpy as np
 
@@ -15,8 +17,9 @@ def get_month_index(month_str):
 
 
 def process_data():
-    input_dir = r"D:\CloudStation\Python\Project\EnergyDataCNCC\input"
-    output_dir = r"D:\CloudStation\Python\Project\EnergyDataCNCC\output"
+    project_root = Path(__file__).resolve().parent.parent
+    input_dir = str(project_root / "input")
+    output_dir = str(project_root / "output")
 
     # Initialize storage for 1-12 months
     # Categories: 电, 采暖热, 生活热水, 自来水, 中水, 燃气
