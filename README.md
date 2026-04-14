@@ -59,6 +59,7 @@ pip install pandas matplotlib openpyxl pyarrow pyyaml
 
 1. **准备数据**: 将能源结算 Excel 文件放入 `input/` 目录。
 2. **配置**: 在 `config.yaml` 的 `runtime.profile` 中选择 `B25B26` 或 `B23`，并分别在对应的 `.env` 文件中填写本地值。
+   年度对比月份使用 `YEAR_COMPARISON_MONTHS` 配置，例如 `YEAR_COMPARISON_MONTHS=[1, 2, 3]`。
 3. **运行**:
 
    ```bash

@@ -105,6 +105,29 @@ def load_energy_color_map(config_path: str = "config.yaml") -> dict:
 ENERGY_COLOR_MAP = load_energy_color_map()
 
 
+QUARTER_LABELS = ["一季度", "二季度", "三季度", "四季度"]
+
+
+def is_quarter_label(value):
+    return str(value) in QUARTER_LABELS
+
+
+def is_month_label(value):
+    return str(value).endswith("月")
+
+
+def filter_monthly_rows(df):
+    if "日期区间" not in df.columns:
+        return df
+    return df[df["日期区间"].apply(is_month_label)].copy()
+
+
+def filter_quarter_rows(df):
+    if "日期区间" not in df.columns:
+        return df.iloc[0:0].copy()
+    return df[df["日期区间"].apply(is_quarter_label)].copy()
+
+
 def get_color_sequence(labels):
     """Return a color list aligned with known energy type order."""
 
@@ -602,8 +625,8 @@ def generate_cost_bar_chart(
         # Prepare data: Date Range as index, Columns as Energy Types
         rename_map = {col: col.replace("_费用(元)", "") for col in cost_cols}
 
-        # 过滤掉 "全年合计" 行，避免比例失调
-        df_plot = df[df["日期区间"] != "全年合计"]
+        # 月度图仅展示月度数据，排除季度/全年汇总
+        df_plot = filter_monthly_rows(df)
         plot_df = df_plot.set_index("日期区间")[cost_cols].rename(columns=rename_map)
 
         # Filter out rows with 0 total cost
@@ -730,8 +753,8 @@ def generate_coal_bar_chart(
         # Prepare data: Date Range as index, Columns as Energy Types
         rename_map = {col: col.replace("_标准煤(吨标准煤)", "") for col in coal_cols}
 
-        # 过滤掉 "全年合计" 行，避免比例失调
-        df_plot = df[df["日期区间"] != "全年合计"]
+        # 月度图仅展示月度数据，排除季度/全年汇总
+        df_plot = filter_monthly_rows(df)
         plot_df = df_plot.set_index("日期区间")[coal_cols].rename(columns=rename_map)
 
         # Filter out rows with 0 total
@@ -862,11 +885,12 @@ def generate_grouped_bar_chart(
         # Prepare data: Date Range as index, Columns as Energy Types
         rename_map = {col: col.replace("_费用(元)", "") for col in cost_cols}
 
-        # 过滤掉 "全年合计" 行，避免比例失调
-        df_plot = df[df["日期区间"] != "全年合计"]
+        # 月度图仅展示月度数据，排除季度/全年汇总
+        df_plot = filter_monthly_rows(df)
         full_plot_df = df_plot.set_index("日期区间")[cost_cols].rename(
             columns=rename_map
         )
+
 
         # Remove rows with 0 total cost
         full_plot_df = full_plot_df[full_plot_df.sum(axis=1) > 0]
@@ -1113,6 +1137,95 @@ def generate_comparison_bar_chart(
 
     except Exception as e:
         logger.error(f"生成对比图表 {filename} 失败: {e}", exc_info=True)
+
+
+def generate_quarterly_energy_type_distribution_bar(
+    input_file: str | pd.DataFrame = "./output/energy_usage_summary.xlsx",
+    output_dir: str = "./output/charts",
+    suffix: str = "_费用(元)",
+    title_prefix: str = "各能源类型季度总量对比",
+):
+    """Generate quarterly total bars when quarter summary rows exist."""
+    logger = setup_logger(log_level=logging.INFO, log_file="./logs/charts.log")
+
+    try:
+        if not isinstance(input_file, pd.DataFrame):
+            df = pd.read_excel(input_file)
+        else:
+            df = input_file
+
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        quarter_df = filter_quarter_rows(df)
+        if quarter_df.empty:
+            logger.info("缺少完整季度汇总行，跳过季度能源类型分布柱状图。")
+            return
+
+        metric_cols = [col for col in df.columns if col.endswith(suffix) and "总" not in col]
+        if not metric_cols:
+            logger.warning("未找到季度柱状图所需数据列：%s", suffix)
+            return
+
+        rename_map = {col: col.replace(suffix, "") for col in metric_cols}
+        plot_df = quarter_df.set_index("日期区间")[metric_cols].rename(columns=rename_map)
+        plot_df = plot_df.loc[:, plot_df.sum(axis=0) > 0]
+        if plot_df.empty:
+            logger.info("季度汇总数据全为0，跳过季度能源类型分布柱状图。")
+            return
+
+        plot_df = plot_df.reindex([label for label in QUARTER_LABELS if label in plot_df.index])
+
+        plt.figure(figsize=(18, 12))
+        ax = plt.gca()
+        quarter_colors = get_color_sequence(plot_df.columns.tolist())
+        plot_df.plot(kind="bar", ax=ax, width=0.75, alpha=0.9, rot=0, color=quarter_colors)
+
+        plt.title(title_prefix, fontsize=30, pad=30, fontweight="bold")
+        plt.xlabel("季度", fontsize=24, labelpad=15)
+
+        use_wan_yuan = False
+        ylabel = "数值"
+        if suffix == "_费用(元)":
+            if plot_df.to_numpy().max() > 50000:
+                use_wan_yuan = True
+                ylabel = "费用 (万元)"
+            else:
+                ylabel = "费用 (元)"
+        elif "标准煤" in suffix:
+            ylabel = "标准煤 (吨)"
+
+        if use_wan_yuan:
+            ax.yaxis.set_major_formatter(FuncFormatter(lambda value, _: f"{value / 10000:.1f}"))
+        else:
+            ax.yaxis.set_major_formatter(FuncFormatter(lambda value, _: f"{value:,.0f}"))
+        plt.ylabel(ylabel, fontsize=24, labelpad=15)
+        plt.xticks(fontsize=22)
+        plt.yticks(fontsize=20)
+        plt.grid(axis="y", linestyle="--", alpha=0.7)
+        plt.legend(title="能源类型", fontsize=18, title_fontsize=20, bbox_to_anchor=(1.01, 1), loc="upper left")
+
+        for container in ax.containers:
+            labels = []
+            for bar in container:
+                height = bar.get_height()
+                if height > 0:
+                    labels.append(f"{height / 10000:,.1f}" if use_wan_yuan else f"{height:,.0f}")
+                else:
+                    labels.append("")
+            ax.bar_label(container, labels=labels, padding=3, fontsize=14)
+
+        plt.tight_layout()
+        file_prefix = "cost_type" if "费用" in title_prefix else "coal_type"
+        output_path = os.path.join(output_dir, f"{file_prefix}_bar_quarterly.png")
+        plt.savefig(output_path)
+        plt.close()
+
+        logger.info(f"已生成季度能源类型分布柱状图: {output_path}")
+        print(f"已生成季度能源类型分布柱状图: {output_path}")
+
+    except Exception as e:
+        logger.error(f"生成季度能源类型柱状图失败: {e}", exc_info=True)
 
 
 def generate_multi_energy_comparison_bar(

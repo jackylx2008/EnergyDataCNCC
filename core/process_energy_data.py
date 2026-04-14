@@ -54,6 +54,84 @@ def _has_complete_year_summary(summary_df):
     return bool((monthly_totals > 0).all())
 
 
+def _build_quarter_summary_rows(summary_df):
+    """Build quarter summary rows only for complete quarters with non-zero monthly data."""
+    if summary_df is None or summary_df.empty or "日期区间" not in summary_df.columns:
+        return []
+
+    monthly_df = summary_df.copy()
+    monthly_df["_month_num"] = monthly_df["日期区间"].apply(_extract_month_number)
+    monthly_df = monthly_df[monthly_df["_month_num"].between(1, 12, inclusive="both")]
+    numeric_cols = monthly_df.select_dtypes(include="number").columns.tolist()
+    numeric_cols = [col for col in numeric_cols if col != "_month_num"]
+
+    quarter_defs = [
+        ("一季度", [1, 2, 3]),
+        ("二季度", [4, 5, 6]),
+        ("三季度", [7, 8, 9]),
+        ("四季度", [10, 11, 12]),
+    ]
+    quarter_rows = []
+
+    for quarter_label, months in quarter_defs:
+        quarter_df = monthly_df[monthly_df["_month_num"].isin(months)].copy()
+        if set(quarter_df["_month_num"].tolist()) != set(months):
+            continue
+        if not numeric_cols:
+            continue
+        if not (quarter_df[numeric_cols].sum(axis=1) > 0).all():
+            continue
+
+        quarter_totals = quarter_df.drop(columns=["日期区间", "_month_num"]).sum(
+            numeric_only=True
+        )
+        quarter_totals["日期区间"] = quarter_label
+        quarter_rows.append(quarter_totals)
+
+    return quarter_rows
+
+
+def _sum_revenue_entries(revenue_data, keys):
+    values = [revenue_data.get(key, 0) for key in keys]
+    if not values or any(val is None or val <= 0 for val in values):
+        return None
+    return sum(values)
+
+
+def _get_revenue_value(revenue_data, label):
+    """Get revenue by month label/number or summary label."""
+    if not isinstance(revenue_data, dict):
+        return None
+
+    if label in revenue_data:
+        return revenue_data[label]
+
+    month_num = _extract_month_number(label)
+    if month_num is None:
+        return None
+
+    for key in (month_num, str(month_num), f"{month_num}月"):
+        if key in revenue_data:
+            return revenue_data[key]
+
+    return None
+
+
+def _sum_monthly_revenue(revenue_data, months):
+    """Sum monthly revenue using numeric or `N月` keys."""
+    if not isinstance(revenue_data, dict):
+        return None
+
+    values = []
+    for month in months:
+        rev = _get_revenue_value(revenue_data, f"{month}月")
+        if rev is None or rev <= 0:
+            return None
+        values.append(rev)
+
+    return sum(values)
+
+
 def process_ledger_file(file_path):
     """
     处理台账格式的 Excel 文件。
@@ -320,6 +398,10 @@ def save_summary(summary_data, output_dir, group_name, save_excel=True):
     coal_cols = [col for col in pivot_df.columns if col.endswith("_标准煤(吨标准煤)")]
     pivot_df["总标准煤(吨标准煤)"] = pivot_df[coal_cols].sum(axis=1)
 
+    quarter_rows = _build_quarter_summary_rows(pivot_df)
+    if quarter_rows:
+        pivot_df = pd.concat([pivot_df, pd.DataFrame(quarter_rows)], ignore_index=True)
+
     has_full_year_data = _has_complete_year_summary(pivot_df)
     if has_full_year_data:
         totals = pivot_df.sum(numeric_only=True)
@@ -332,32 +414,55 @@ def save_summary(summary_data, output_dir, group_name, save_excel=True):
         )
 
     # 2. 提取年份以获取经营收入
-    year = 2025  # 默认 2025
+    config = load_config()
+    revenue_config = config.get("operating_revenue", {})
+    default_year = max(revenue_config.keys(), default=2025)
+    year = default_year
+
+    year_sources = []
     try:
         source_file = final_df["来源文件"].iloc[0]
-        year_match = re.search(r"(20\d{2})", source_file)
-        if year_match:
-            year = int(year_match.group(1))
+        if source_file:
+            year_sources.append(str(source_file))
     except Exception:
         pass
 
+    input_file = config.get("paths", {}).get("input_file")
+    if input_file:
+        year_sources.append(str(input_file))
+
+    for year_source in year_sources:
+        year_match = re.search(r"(20\d{2})", year_source)
+        if year_match:
+            year = int(year_match.group(1))
+            break
+
     # 3. 处理经营收入和万元营收标准煤耗指标
-    revenue_data = config.get("operating_revenue", {}).get(year)
+    revenue_data = revenue_config.get(year)
     if revenue_data:
         pivot_df["万元营收标准煤耗(kg/万元营收)"] = 0.0
 
         if isinstance(revenue_data, dict):
-            # 存在月度收入数据
-            def get_month_num(m_str):
-                m = re.search(r"(\d+)", str(m_str))
-                return int(m.group(1)) if m else None
-
             # 计算各个月份的指标
             for idx, row in pivot_df.iterrows():
-                m_num = get_month_num(row["日期区间"])
-                if m_num in revenue_data:
-                    rev = revenue_data[m_num]
-                    if rev > 0:
+                date_label = row["日期区间"]
+                rev = _get_revenue_value(revenue_data, date_label)
+                if rev is not None and rev > 0:
+                    efficiency = round((row["总标准煤(吨标准煤)"] * 1000.0 / rev), 2)
+                    pivot_df.loc[idx, "万元营收标准煤耗(kg/万元营收)"] = efficiency
+                    continue
+
+                quarter_month_map = {
+                    "一季度": [1, 2, 3],
+                    "二季度": [4, 5, 6],
+                    "三季度": [7, 8, 9],
+                    "四季度": [10, 11, 12],
+                }
+                if date_label in quarter_month_map:
+                    rev = _sum_monthly_revenue(
+                        revenue_data, quarter_month_map[date_label]
+                    )
+                    if rev is not None and rev > 0:
                         efficiency = round(
                             (row["总标准煤(吨标准煤)"] * 1000.0 / rev), 2
                         )
@@ -365,8 +470,21 @@ def save_summary(summary_data, output_dir, group_name, save_excel=True):
 
             # 计算全年的指标
             if has_full_year_data:
-                total_rev = sum(revenue_data.values())
-                if total_rev > 0:
+                total_rev = None
+                month_keys = list(range(1, 13))
+                month_label_keys = [f"{month}月" for month in range(1, 13)]
+                quarter_keys = ["一季度", "二季度", "三季度", "四季度"]
+
+                if all(key in revenue_data for key in month_keys):
+                    total_rev = _sum_revenue_entries(revenue_data, month_keys)
+                elif all(key in revenue_data for key in month_label_keys):
+                    total_rev = _sum_revenue_entries(revenue_data, month_label_keys)
+                elif all(key in revenue_data for key in quarter_keys):
+                    total_rev = _sum_revenue_entries(revenue_data, quarter_keys)
+                else:
+                    total_rev = _sum_monthly_revenue(revenue_data, range(1, 13))
+
+                if total_rev is not None and total_rev > 0:
                     total_coal = pivot_df.loc[
                         pivot_df["日期区间"] == "全年合计", "总标准煤(吨标准煤)"
                     ].values[0]

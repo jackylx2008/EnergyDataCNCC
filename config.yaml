@@ -1,13 +1,17 @@
-# 日志配置
-log_level: INFO  # 日志级别: DEBUG, INFO, WARNING, ERROR, CRITICAL
-log_file: ./logs/main_energy_cost.log  # 日志文件路径
+# 运行档位配置
+runtime:
+  profile: B25B26
+  env_files:
+    B25B26: common.b25b26.env
+    B23: common.b23.env
 
-# 输入/输出配置
+# 环境相关值由对应 profile 的 .env 提供
+log_level: ${LOG_LEVEL}
+log_file: ${LOG_FILE}
+
 paths:
-  # input_file: D:/CloudStation/国会二期/02 能源工程师/2025年度北辰会投水电气热用量统计表/会展分公司/会展分公司统计水电气热月度基础数据（包括租户展商）.xlsx # 输入文件目录
-  input_file: D:/CloudStation/国会二期/02 能源工程师/2026年度北辰会投水电气热用量统计表/会展分公司/会展分公司统计水电气热月度基础数据（总出口）.xlsx # 输入文件目录
-  # input_file: D:/CloudStation/国会二期/02 能源工程师/2025年度北辰会投水电气热用量统计表/商管分公司/商管分公司统计水电气热月度基础数据（包括租户展商）.xlsx # 输入文件目录
-  output_dir: ./output  # 输出文件目录
+  input_file: ${INPUT_FILE}
+  output_dir: ${OUTPUT_DIR}
 
 # 可视化配色配置
 colors:
@@ -32,24 +36,18 @@ coal_conversion:
   中水: 0
   生活热水用热: 34.10
 
-# 经营收入 (单位: 万元)
+# 经营收入、总面积、年度对比的值由对应 profile 的 .env 提供
 operating_revenue:
-  2025: 19428.42 # 主体2025年度经营收入
-  # 2025: 27686 # B23 2025年度经营收入
+  2025: ${OPERATING_REVENUE_2025}
+  2026: ${OPERATING_REVENUE_2026}
 
-# 总面积 (单位: 平方米)
 total_area:
-  主体: 418680.0 # 主体总面积
-  # B23: 2117602.51 # B23总面积
+  B25B26: ${TOTAL_AREA_B25B26}
 
-# 年度对比配置
 year_comparison:
-  # 格式为 年份: 文件路径
-  # 路径建议使用绝对路径
   files:
-    2025: D:/CloudStation/国会二期/02 能源工程师/2025年度北辰会投水电气热用量统计表/会展分公司/会展分公司统计水电气热月度基础数据（包含租户展商）.xlsx # 示例路径，需替换为实际2024文件
-    # 2026: D:/CloudStation/国会二期/02 能源工程师/2026年度北辰会投水电气热用量统计表/会展分公司/会展分公司统计水电气热月度基础数据（包含租户展商）.xlsx
+    2025: ${YEAR_COMPARISON_FILE_2025}
   months:
-    - 1
+    ${YEAR_COMPARISON_MONTHS}
 
 
