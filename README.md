@@ -1,85 +1,140 @@
-# 能源数据处理与可视化系统 (Energy Data Processing & Visualization System)
+# 能源数据处理与可视化系统
 
 ## 项目简介
 
-本项目用于自动化处理能源消耗数据（Excel 格式），进行数据清洗、汇总统计，并生成可视化的费用分析图表。主要用于处理包含电、水、气、热等多种能源类型的结算报表。
+本项目用于处理能源结算 Excel 台账，完成数据清洗、费用汇总、标准煤折算、同比分析和图表输出。当前包含两条主工作流：
+
+- `main_energy_cost.py`：单年度能耗费用汇总与图表生成
+- `main_energy_comparison.py`：跨年度同口径对比，支持指定月份的万元营收标准煤耗对比，以及截至指定月份累计的单位平米指标对比
 
 ## 主要功能
 
-* **自动化数据处理**: 批量读取 Excel 文件，自动处理合并单元格（如“能源类型”列）等格式问题。
-* **增量更新与缓存**: 使用 Parquet 格式缓存已处理数据，支持数据一致性比对，避免重复计算。
-* **多维度汇总**: 自动生成按日期区间和能源类型的费用汇总报表 (`energy_usage_summary.xlsx`)。
-* **可视化图表**:
-  * **饼图**: 展示单期能源费用分布。
-  * **堆叠柱状图**: 展示各期总费用对比及构成。
-  * **分组柱状图**: 对比不同时期各项能源费用的变化。
-* **中文支持**: 完善的中文日志记录和图表中文显示。
+- 自动读取 Excel 台账并处理合并单元格等常见格式问题
+- 使用 Parquet 缓存中间结果，避免重复处理
+- 输出按日期区间、能源类型汇总的费用与标准煤结果
+- 生成费用构成图、同比对比图等可视化图表
+- 支持按指定月份输出万元营收标准煤耗 Markdown 表格
+- 支持输出“截至指定月份累计单位平米指标对比”
 
 ## 项目结构
 
 ```text
 EnergyDataCNCC/
-├── input/                  # 输入目录：存放原始 Excel 文件
-├── output/                 # 输出目录：存放汇总报表和图表
-│   └── charts_能耗费用/    # 生成的图片文件
-├── data/                   # 缓存目录：存放 Parquet 缓存文件
-├── logs/                   # 日志目录
-├── config.yaml             # 静态规则配置
-├── common.b25b26.env       # B25B26 环境配置（已忽略）
-├── common.b23.env          # B23 环境配置（已忽略）
-├── main_energy_cost.py     # 主程序入口 (能耗费用工作流)
-├── main_energy_comparison.py # 主程序入口 (年度同比工作流)
-├── core/                   # 核心业务模块
-│   ├── process_energy_data.py
-│   ├── energy_models.py
-│   ├── generate_charts.py
-│   └── logging_config.py
-├── tools/                  # 调试/辅助脚本
-│   ├── inspect_excel.py
-│   └── consolidate_energy_data.py
-└── README.md               # 项目说明文档
+├── input/                     # 输入目录：原始 Excel 文件
+├── output/                    # 输出目录：汇总报表和图表
+├── data/                      # 缓存目录：Parquet 数据
+├── logs/                      # 日志目录
+├── config.yaml                # 静态配置
+├── common.<profile>.env       # 环境变量配置（示例命名，已忽略）
+├── main_energy_cost.py        # 能耗费用工作流入口
+├── main_energy_comparison.py  # 年度同比工作流入口
+├── core/                      # 核心业务模块
+├── tools/                     # 调试/辅助脚本
+└── README.md
 ```
 
 ## 环境依赖
 
-* Python 3.8+
-* Pandas
-* Matplotlib
-* OpenPyXL (用于读取 Excel)
-* PyArrow (用于 Parquet 支持)
-* PyYAML
+- Python 3.8+
+- pandas
+- matplotlib
+- openpyxl
+- pyarrow
+- pyyaml
 
-安装依赖:
+安装依赖：
 
 ```bash
 pip install pandas matplotlib openpyxl pyarrow pyyaml
 ```
 
+## 配置说明
+
+`config.yaml` 负责静态结构配置，运行时路径、收入、面积、对比月份等值通过 `.env` 提供。配置示例中的文件名和路径建议使用你自己的占位命名，不要直接照搬任何真实生产文件名。
+
+`config.yaml` 示例：
+
+```yaml
+runtime:
+  profile: PROFILE_A
+  env_files:
+    PROFILE_A: common.profile_a.env
+    PROFILE_B: common.profile_b.env
+
+paths:
+  input_file: ${INPUT_FILE}
+  output_dir: ${OUTPUT_DIR}
+
+operating_revenue:
+  2025: ${OPERATING_REVENUE_2025}
+  2026: ${OPERATING_REVENUE_2026}
+
+total_area:
+  PROFILE_A: ${TOTAL_AREA_PROFILE_A}
+
+year_comparison:
+  files:
+    2025: ${YEAR_COMPARISON_FILE_2025}
+  months:
+    ${YEAR_COMPARISON_MONTHS}
+```
+
+`.env` 示例：
+
+```dotenv
+LOG_LEVEL=INFO
+LOG_FILE=./logs/app.log
+INPUT_FILE=./input/sample_energy_ledger.xlsx
+OUTPUT_DIR=./output
+
+TOTAL_AREA_PROFILE_A=418680
+YEAR_COMPARISON_FILE_2025=./input/comparison_2025.xlsx
+YEAR_COMPARISON_FILE_2026=./input/comparison_2026.xlsx
+YEAR_COMPARISON_MONTHS=[1, 2, 3]
+
+OPERATING_REVENUE_2025={"1月": 100.0, "2月": 200.0, "3月": 300.0}
+OPERATING_REVENUE_2026={"1月": 120.0, "2月": 220.0, "3月": 320.0}
+```
+
+说明：
+
+- `runtime.profile` 决定当前读取哪个 `.env`
+- `YEAR_COMPARISON_MONTHS` 控制同比月份范围，常用值为 `[1, 2, 3]`
+- `main_energy_comparison.py` 中“单位平米指标对比”是按当前对比月份累计口径输出的；当月份为 `[1, 2, 3]` 时，文案显示为“截至3月累计单位平米指标对比”
+
 ## 快速开始
 
-1. **准备数据**: 将能源结算 Excel 文件放入 `input/` 目录。
-2. **配置**: 在 `config.yaml` 的 `runtime.profile` 中选择 `B25B26` 或 `B23`，并分别在对应的 `.env` 文件中填写本地值。
-   年度对比月份使用 `YEAR_COMPARISON_MONTHS` 配置，例如 `YEAR_COMPARISON_MONTHS=[1, 2, 3]`。
-3. **运行**:
+1. 将能源结算 Excel 文件放入输入目录，或在 `.env` 中指定输入文件路径。
+2. 在 `config.yaml` 中选择 `runtime.profile`。
+3. 在对应的 `.env` 文件中填写本地路径、面积、营收和年度对比配置。
+4. 运行单年度费用工作流：
 
-   ```bash
-   python main_energy_cost.py
-   ```
+```bash
+python main_energy_cost.py
+```
 
-4. **查看结果**:
-   * 汇总表格: `output/energy_summary_能耗费用.xlsx`
-   * 统计图表: `output/charts_能耗费用/`
+5. 运行年度同比工作流：
 
-## 详细说明
+```bash
+python main_energy_comparison.py
+```
 
-### 1. 数据处理 (`core/process_energy_data.py`)
+## 输出说明
 
-读取 `input` 目录下的所有 `.xlsx` 文件。针对每个 Sheet（代表一个日期区间），使用 `EnergySheet` 类进行清洗（如处理合并单元格填充）。处理后的数据会与 `data` 目录下的缓存进行比对，确保数据一致性。
+单年度费用工作流通常输出：
 
-### 2. 图表生成 (`core/generate_charts.py`)
+- 汇总表：`output/energy_summary_能耗费用.xlsx`
+- 图表目录：`output/charts_能耗费用/`
 
-读取生成的汇总 Excel，使用 Matplotlib 绘制图表。已配置 `SimHei` 和 `Microsoft YaHei` 字体以支持中文显示。
+年度同比工作流通常输出：
 
-### 3. 调试 (`tools/inspect_excel.py`)
+- 对比明细：`output/energy_comparison_details.xlsx`
+- 对比图表目录：`output/charts_年度对比/`
+- 终端摘要：
+  - 指定月份万元营收标准煤耗 Markdown 表格
+  - 截至指定月份累计单位平米指标对比
 
-如果遇到新的 Excel 格式，可以使用此脚本快速查看文件结构和列名，以便调整代码。
+## 调试
+
+- `tools/inspect_excel.py`：快速检查新的 Excel 文件结构和列名
+- `tools/consolidate_energy_data.py`：辅助整理和核对能源数据

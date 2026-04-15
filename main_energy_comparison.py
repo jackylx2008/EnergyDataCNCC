@@ -526,19 +526,21 @@ def main() -> None:
         total_area_config=total_area_config,
     )
     if not area_efficiency_df.empty:
-        print("\n>>> 单位平米指标对比:")
+        print("\n>>> 截至3月累计单位平米指标对比:")
         for _, row in area_efficiency_df.sort_values("年份").iterrows():
             year_label = str(row["年份"])
             coal_per_sqm = _to_float(row["单位平米标准煤(kg/㎡)"]) or 0.0
             cost_per_sqm = _to_float(row["单位平米能耗费用(元/㎡)"]) or 0.0
             print(
-                f"    - {year_label}年: "
+                f"    - {year_label}年截至3月累计: "
                 f"单位平米标准煤 {coal_per_sqm:.4f} kg/㎡, "
                 f"单位平米能耗费用 {cost_per_sqm:.4f} 元/㎡"
             )
     else:
-        logger.warning("未能生成单位平米指标对比数据。")
-        print("\n>>> 单位平米指标对比: 未获取到可用数据")
+        logger.warning("未能生成截至3月累计单位平米指标对比数据。")
+        print("\n>>> 截至3月累计单位平米指标对比: 未获取到可用数据")
+
+    print()
 
     # B. 记录日志完成
     logger.info("年度对比工作流执行完成。")
